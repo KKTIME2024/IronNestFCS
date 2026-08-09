@@ -6,6 +6,8 @@
 
 A deep-fork of [svr2kos2](https://github.com/svr2kos2)'s FCS (tactical radar inspired by [gxpppp](https://github.com/gxpppp/IronNestFCS)) — a **fully automatic Fire Control System** for *[Iron Nest: Heavy Turret Simulator](https://store.steampowered.com/app/4300500/)*: press Numpad 0 and let the mod handle the rest.
 
+整合了[svr2kos2](https://github.com/svr2kos2) FCS v1.0.6 对完整版弹药类型的支持。Integrated the support for full version bullet types from [svr2kos2](https://github.com/svr2kos2) FCS v1.0.6.
+
 > 基于游戏 Demo 版本开发，使用 IL2CPP + MelonLoader。Built for the Demo version using IL2CPP + MelonLoader.
 
 ---
@@ -14,7 +16,7 @@ A deep-fork of [svr2kos2](https://github.com/svr2kos2)'s FCS (tactical radar ins
 
 ### 这是什么
 
-为《铁巢：重炮模拟器》编写的 MelonLoader Mod。本仓库是 svr2kos2 原版 FCS 的分支：开启后 Mod 持续扫描全图敌情，自动完成弹道解算、弹种选择、采购装填、瞄准击发。
+为《铁巢：重炮模拟器》编写的 MelonLoader Mod。本仓库是 svr2kos2 原版 FCS 的分支的分支：开启后 Mod 持续扫描全图敌情，自动完成弹道解算、弹种选择、采购装填、瞄准击发。
 
 ### 核心功能
 
@@ -34,7 +36,7 @@ A deep-fork of [svr2kos2](https://github.com/svr2kos2)'s FCS (tactical radar ins
 
 #### 手动模式
 - Numpad 1-4（或 Ctrl+1-4）对标记目标 T1~T4 手动下达打击任务
-- 面板切换弹种（AP / HCHE / HE / STAR / SMK）、`Auto Fire` 自动击发、`Max Charge` 满装药（此项在全自动模式下失效）
+- 面板切换弹种（AP / APHE / ATMC / CLMN / CYAN / DRIL / EQKE / FLCH / HCHE / HE / INCH / LE / PLCM / PHGN / PRPG / SMK / STAR / TEAR / THRM / WP）、`Auto Fire` 自动击发、`Max Charge` 满装药（此项在全自动模式下失效）
 
 ### 开发体验
 - **F9 热重载**：修改 `IronNestFCS.Logic` 代码 → `dotnet build` → 切回游戏按 F9，无需重启
@@ -129,7 +131,7 @@ A MelonLoader mod for *Iron Nest: Heavy Turret Simulator*. This is a deep-fork o
 
 #### Manual Mode
 - Numpad 1-4 (or Ctrl+1-4) to manually dispatch strikes against markers T1~T4
-- Switch shell types (AP / HCHE / HE / STAR / SMK), toggle `Auto Fire`, and `Max Charge` from the console buttons
+- Switch shell types (AP / APHE / ATMC / CLMN / CYAN / DRIL / EQKE / FLCH / HCHE / HE / INCH / LE / PLCM / PHGN / PRPG / SMK / STAR / TEAR / THRM / WP), toggle `Auto Fire`, and `Max Charge` from the console buttons
 
 ### Developer Experience
 - **F9 hot reload**: edit `IronNestFCS.Logic` → `dotnet build` → press F9 in-game. No restart needed
