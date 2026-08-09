@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using Il2Cpp;
 using Il2CppTMPro;
 using IronNestFCS.Logic.FCS;
@@ -36,7 +36,8 @@ public class FcsSceneInteractor {
 
     private void InitializeBulletTypeButtons() {
         const float z = -18.4181f;
-        float x = 0.3488f;
+        var x = 0.8f;
+        var y = -0.65f;
         foreach (BulletType type in Enum.GetValues(typeof(BulletType))) {
             BulletType captured = type;
             // 先声明再赋值：lambda 要捕获 button，不能在其声明表达式内部引用它。
@@ -47,7 +48,7 @@ public class FcsSceneInteractor {
                     SetColor(btn, btn == button ? Color.green : Color.white);
                 }
             }, type == BulletType.HE ? Color.green : Color.white);
-            button.transform.position = new Vector3(x, -0.6916f, z);
+            button.transform.position = new Vector3(x, y, z);
             button.transform.localScale = Vector3.one * 0.02f;
             bulletTypeBtns.Add(button);
             var text = AddText(type.ToString(), 14f);
@@ -55,14 +56,25 @@ public class FcsSceneInteractor {
             text.transform.localPosition = new Vector3(-1.9f, 0, -10.6f);
             text.transform.localScale = Vector3.one * 1.0f;
             x -= 0.05f;
+			y -= 0.0045f;
         }
+	}
 
-        GameObject autoFireButton = null;
+    /// <summary>
+    /// 4 个目标按钮（对应地图上 1~4 号炮兵标记）。点击即用当前选中弹种为该目标入队一个任务，
+    /// 调度器自动派给空闲炮管。用 activeTargets 防止同一目标重复入队。
+    /// </summary>
+    private void InitializeTargetButtons() {
+        const float z = -18.5881f;
+        var x = 0.8f;
+        var y = -0.65f;
+
+        GameObject? autoFireButton = null;
         autoFireButton = AddButton(() => {
             AutoFire = !AutoFire;
             SetColor(autoFireButton, AutoFire ? Color.red : Color.white);
         }, AutoFire ? Color.red : Color.white);
-        autoFireButton.transform.position = new Vector3(x, -0.6916f, z);
+        autoFireButton.transform.position = new Vector3(x, y, z);
         autoFireButton.transform.localScale = Vector3.one * 0.02f;
         var autoFiretext = AddText("Auto Fire", 14f);
         autoFiretext.transform.SetParent(autoFireButton.transform, false);
@@ -70,27 +82,25 @@ public class FcsSceneInteractor {
         autoFiretext.transform.localScale = Vector3.one * 1.0f;
         
         x -= 0.05f;
+		y -= 0.0045f;
         
         GameObject maxChargeButton = null;
         maxChargeButton = AddButton(() => {
             maxCharge = !maxCharge;
             SetColor(maxChargeButton, maxCharge ? Color.red : Color.white);
         }, maxCharge ? Color.red : Color.white);
-        maxChargeButton.transform.position = new Vector3(x, -0.6916f, z);
+        maxChargeButton.transform.position = new Vector3(x, y, z);
         maxChargeButton.transform.localScale = Vector3.one * 0.02f;
         var maxChargeText = AddText("Max Charge", 14f);
         maxChargeText.transform.SetParent(maxChargeButton.transform, false);
         maxChargeText.transform.localPosition = new Vector3(-1.9f, 0, -10.6f);
         maxChargeText.transform.localScale = Vector3.one * 1.0f;
-    }
 
-    /// <summary>
-    /// 4 个目标按钮（对应地图上 1~4 号炮兵标记）。点击即用当前选中弹种为该目标入队一个任务，
-    /// 调度器自动派给空闲炮管。用 activeTargets 防止同一目标重复入队。
-    /// </summary>
-    private void InitializeTargetButtons() {
-        const float z = -18.6381f;
-        var x = 0.3488f;
+        x -= 0.05f;
+        y -= 0.0045f;
+
+        ////////////////
+
         for (var i = 1; i <= 4; i++) {
             var targetId = i;
             GameObject button = null;
@@ -109,7 +119,7 @@ public class FcsSceneInteractor {
                     button.GetComponent<Collider>().enabled = true;
                 }, 1f));
             }, Color.red);
-            button.transform.position = new Vector3(x, -0.6916f, z);
+            button.transform.position = new Vector3(x, y, z);
             button.transform.localScale = Vector3.one * 0.02f;
             targetButtons[targetId] = button;
             var text = AddText("T" + targetId, 14f);
@@ -117,6 +127,7 @@ public class FcsSceneInteractor {
             text.transform.localPosition = new Vector3(-1.9f, 0, -10.6f);
             text.transform.localScale = Vector3.one * 1.0f;
             x -= 0.05f;
+			y -= 0.0045f;
         }
     }
 
