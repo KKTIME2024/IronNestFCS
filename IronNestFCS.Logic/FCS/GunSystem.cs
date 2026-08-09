@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using Il2Cpp;
 using Il2CppTMPro;
 using MelonLoader;
@@ -9,10 +9,25 @@ namespace IronNestFCS.Logic.FCS;
 
 public enum BulletType {
     AP = 1,
-    HCHE = 2,
-    HE = 3,
-    STAR = 4,
-    SMK = 5,
+    APHE = 2,
+    ATMC = 3,
+    CLMN = 4,
+    CYAN = 5,
+    DRIL = 6,
+    EQKE = 7,
+    FLCH = 8,
+    HCHE = 9,
+    HE = 10,
+    INCN = 11,
+    LE = 12,
+    PLCM = 13,
+    PHGN = 14,
+    PRPG = 15,
+    SMK = 16,
+    STAR = 17,
+    TEAR = 18,
+    THRM = 19,
+    WP = 20,
 }
 
 public class GunSystem {
