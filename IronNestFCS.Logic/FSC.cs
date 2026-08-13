@@ -992,11 +992,10 @@ public class FSC
         var hche = ClusterSolver.Best(ti.WorldPos, candidates,
             ShellData.BlastRadiusKm(BulletType.HCHE), friendlies, ShellData.FriendlySafeRadiusKm(BulletType.HCHE));
 
-        // DRIL 基准(3 点/个) + 时间补偿: 纯成本门槛 = ceil(成本/3)(HE 4/HCHE 6), 但集群一发省
-        // 多发装填+飞行(每发 ~60-90s, CBT 竞速时间即点数)——门槛降 1: HE(10)→≥3(贵1点省2发时间)、
-        // HCHE(18)→≥5(贵3点省4发时间)。低于门槛(2 个以内)走单点 DRIL。
-        bool heValid = he.HasValue && he.Value.Count >= 3;
-        bool hcheValid = hche.HasValue && hche.Value.Count >= 5;
+        // 集群门槛(用户 2026-08-13 定): HE ≥2、HCHE ≥4——集群打得勤快比省点更重要。
+        // DRIL 基准纯成本是 HE 4/HCHE 6, 时间补偿降 1 是 3/5——再放宽到 2/4 图个热闹。
+        bool heValid = he.HasValue && he.Value.Count >= 2;
+        bool hcheValid = hche.HasValue && hche.Value.Count >= 4;
         // 性价比选弹: 每申请点覆盖目标数 = 覆盖数/成本(HE 10 点, HCHE 18 点)。
         // 交叉相乘免浮点: hche.Count×10 > he.Count×18 → HCHE 每点覆盖更多 → 升级。
         // 例: HE 3 vs HCHE 5 → 3×18=54 > 5×10=50 → HE 更划算(保持); HE 2 vs HCHE 5 → 2×18<5×10 → HCHE。
