@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using Il2Cpp;
 using MelonLoader;
 using UnityEngine;
@@ -43,11 +44,13 @@ public class Turret {
         LastSetAngle = angle;
     }
 
-    /// <summary>就绪判定: 转到位(rotationVelocity==0)后与目标方位角的差(0-180)。未转完返回 180。</summary>
+    /// <summary>就绪判定: 实际方位(CurrentAngle, 与 DesiredRotation 同负号坐标系)与目标方位差(0-180)。
+    /// 读实际值而非期望值——设目标后物理未响应的瞬态(velocity=0 但未转)不再误判"已收敛"。
+    /// rotationVelocity!=0 返回 180 防"转动中扫过目标角"的瞬态误判。转到位 = 实际方位==目标。</summary>
     public float AngleError(float targetAngle) {
         if (_turret == null) return 0f;
         if (_turret.rotationVelocity != 0f) return 180f;   // 仍在转 → 未就绪
-        float d = Mathf.Abs(_turret.DesiredRotation + targetAngle) % 360f;
+        float d = Mathf.Abs(_turret.CurrentAngle + targetAngle) % 360f;
         return d > 180f ? 360f - d : d;
     }
 

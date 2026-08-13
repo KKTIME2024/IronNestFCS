@@ -55,4 +55,10 @@ public class ArtilleryTask {
     /// <summary>移动集群覆盖成员(entityId): 击发时按实体登记——爆区几何以落点为中心,
     /// 车列在落点后方(提前点在行进方向前方), 在飞屏蔽需按实体。死亡由 Reconcile 释放。</summary>
     public List<string>? ClusterMembers;
+    /// <summary>变速/停车二次采纳的跟踪对象: 集群任务自身 entityId=""(位置提交, 注册表按落点覆盖),
+    /// 但停车采纳需要跟踪领队(车列编队同步动停)。单点任务不设, 回退用 entityId。</summary>
+    public string TrackEntityId = "";
+    /// <summary>移动集群落点相对领队的偏移(世界单位): 停车采纳时落点 = 领队当前位置 + 偏移,
+    /// 保持车列几何不变(落点仍在车列中点)——否则落点跳车头, 覆盖判定与爆炸错位(5 节只炸前 3 节)。</summary>
+    public Vector3 ClusterOffset;
 }

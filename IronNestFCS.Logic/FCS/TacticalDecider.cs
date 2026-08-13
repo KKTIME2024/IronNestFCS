@@ -60,26 +60,24 @@ public static class TacticalDecider
     }
 
     /// <summary>
-    /// 自动弹种选择，成本优先：软目标单点 LE（轻弹省点，单个目标用不上 HE 的杀伤包络），
-    /// 装甲/地下 → AP（穿透）。免疫时交叉降级，HCHE 仅作最后兜底。
-    /// 注意：集群路径不经过这里（TryBuildClusterTask 直接选 HE/HCHE，覆盖 ≥2 才成簇）。
+    /// 自动弹种选择：装甲/地下 → AP（穿透）；软目标单点 → DRIL（超小毁伤半径精确弹——
+    /// 直击必死且不误伤/不屏蔽邻居，比 LE 更精确）。免疫时沿链降级：软 DRIL→LE→HE→HCHE、
+    /// 甲 AP→HE→HCHE。注意：集群路径不经过这里（TryBuildClusterTask 直接选 HE/HCHE）。
     /// </summary>
     public static BulletType ChooseShellType(TargetInfo t)
     {
         var immune = t.ImmuneShells ?? new HashSet<string>();
 
-        // 首选：装甲/地下需要穿透，软目标单点 LE 足够
-        BulletType primary = (t.IsArmored || t.IsUnderground) ? BulletType.AP : BulletType.LE;
+        if (t.IsArmored || t.IsUnderground)
+        {
+            if (!immune.Contains(BulletType.AP.ToString())) return BulletType.AP;
+            if (!immune.Contains(BulletType.HE.ToString())) return BulletType.HE;
+            return BulletType.HCHE;
+        }
 
-        if (!immune.Contains(primary.ToString()))
-            return primary;
-
-        // 首选被免疫 → 换另一个低成本弹种
-        var fallback = primary == BulletType.AP ? BulletType.LE : BulletType.AP;
-        if (!immune.Contains(fallback.ToString()))
-            return fallback;
-
-        // 两个都被免疫 → 上 HCHE（贵但可用）
+        if (!immune.Contains(BulletType.DRIL.ToString())) return BulletType.DRIL;
+        if (!immune.Contains(BulletType.LE.ToString())) return BulletType.LE;
+        if (!immune.Contains(BulletType.HE.ToString())) return BulletType.HE;
         return BulletType.HCHE;
     }
 

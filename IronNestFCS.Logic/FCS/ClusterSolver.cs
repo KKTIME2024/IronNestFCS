@@ -17,8 +17,9 @@ public static class ClusterSolver
     {
         public readonly Vector3 Impact;   // 发射点(世界单位, MEC 圆心)
         public readonly int Count;        // 覆盖软目标数(含 T)
-        public Cluster(Vector3 impact, int count)
-        { Impact = impact; Count = count; }
+        public readonly float RadiusKm;   // MEC 半径(km)——诊断/边缘校验用
+        public Cluster(Vector3 impact, int count, float radiusKm)
+        { Impact = impact; Count = count; RadiusKm = radiusKm; }
     }
 
     /// <summary>
@@ -47,6 +48,7 @@ public static class ClusterSolver
         int n = cand.Count;
         int bestCount = 1;
         Vector3 bestImpact = t;
+        float bestRadiusKm = 0f;
         int subsetCount = 1 << n;
         for (int mask = 1; mask < subsetCount; mask++)
         {
@@ -61,9 +63,10 @@ public static class ClusterSolver
             if (HasFriendlyNear(center, rFriendly, friendlies)) continue; // 友军禁区(杀伤包络+余量)
             bestCount = count;
             bestImpact = center;
+            bestRadiusKm = radius * ShellData.KmPerWorldUnit;
         }
 
-        return bestCount >= 2 ? new Cluster(bestImpact, bestCount) : null;
+        return bestCount >= 2 ? new Cluster(bestImpact, bestCount, bestRadiusKm) : null;
     }
 
     private static bool HasFriendlyNear(Vector3 center, float r, List<Vector3> friendlies)

@@ -57,8 +57,9 @@ public class FSC
     public readonly List<ArtilleryTask> InFlight = new();
 
     /// <summary>机构就绪容差(度): 双机构与 aim 差小于此值且 CanFire 才进入确认。
-    /// 1° 已够——毁伤半径兜底(10km 处 1° ≈ 175m), 高装药压低漂移率(~0.3°/s)保证收敛。</summary>
-    private const float AimToleranceDeg = 1f;
+    /// 0.1°——1°@10km≈175m 已超 HE 致死半径(120m), "对准"可能是打偏; 0.1°@10km≈17.5m
+    /// 远小于任何毁伤半径。机构 4°/s、漂移 ~0.3°/s, 收敛有余量。与齐射门容差一致。</summary>
+    private const float AimToleranceDeg = 0.1f;
     /// <summary>齐射方位容差(度): 两管目标方位差小于此值视为同方向, 放行双管齐射(玩家拉一次扳机=双弹)。
     /// 过严=丢齐射(退化为串行); 过松=近距目标误齐射。0.1°@10km≈17m。实战校准。</summary>
     private const float SalvoBearingToleranceDeg = 0.1f;
@@ -475,9 +476,10 @@ public class FSC
     /// ponytail: 只列 STAR; 其他非杀伤弹(SMOKE 等)出现同样屏蔽再扩展。</summary>
     private static bool IsKillContract(ArtilleryTask t) => t.bulletType != BulletType.STAR;
 
-    /// <summary>弹种不可用回退链: LE/AP 未解锁 → HE(开局即有); HE 不可用 → HCHE。链尾返回自身。</summary>
+    /// <summary>弹种不可用回退链: DRIL→LE→HE(开局即有)→HCHE; AP 不可用 → HE。链尾返回自身。</summary>
     private static BulletType FallbackShell(BulletType t) => t switch
     {
+        BulletType.DRIL => BulletType.LE,
         BulletType.LE => BulletType.HE,
         BulletType.AP => BulletType.HE,
         BulletType.HE => BulletType.HCHE,
@@ -908,26 +910,37 @@ public class FSC
     /// </summary>
     private void AdoptVelocityIfNeeded(ArtilleryTask task) {
         if (EntityLocator == null) return;
+        // 跟踪对象: 集群任务看领队(车列编队同步动停), 单点任务就是自身
+        var trackId = task.TrackEntityId is { Length: > 0 } ? task.TrackEntityId : task.entityId;
         if (task.VelocityUnknown) {
-            if (EntityLocator.TryGetMotion(task.entityId, out var pos, out var vel)) {
+            if (trackId is { Length: > 0 } && EntityLocator.TryGetMotion(trackId, out var pos, out var vel)) {
                 task.AimP0 = pos;
                 task.AimVel = vel;
                 task.AimStartTime = Time.time;
                 task.VelocityUnknown = false;
                 task.IsMoving = TargetLeadSolver.IsMoving(vel);
-                MelonLogger.Msg($"[FCS] 已采纳 {task.entityId} 速度 {vel.magnitude * 3.8164f:F3}km/s, 快照重置");
+                MelonLogger.Msg($"[FCS] 已采纳 {trackId} 速度 {vel.magnitude * 3.8164f:F3}km/s, 快照重置");
             }
             return;
         }
-        if (task.IsMoving && task.entityId is { Length: > 0 }
-            && EntityLocator.TryGetMotion(task.entityId, out var livePos, out var liveVel)
+        if (task.IsMoving && trackId is { Length: > 0 }
+            && EntityLocator.TryGetMotion(trackId, out var livePos, out var liveVel)
             && (liveVel - task.AimVel).magnitude * ShellData.KmPerWorldUnit > 0.002f)
         {
             task.AimP0 = livePos;
             task.AimVel = liveVel;
             task.AimStartTime = Time.time;
             task.IsMoving = TargetLeadSolver.IsMoving(liveVel);
-            MelonLogger.Msg($"[FCS] 变速采纳 {task.entityId}: v={liveVel.magnitude * 3.8164f:F3}km/s, 快照重置{(task.IsMoving ? "" : " (停车→静态)")}");
+            if (!task.IsMoving) {
+                // 停车 → 静态瞄准点: 集群任务 = 领队当前位置 + 集群偏移(保持车列中点, 落点不跳车头);
+                // 单点任务 = 目标当前位置(不再追幽灵提前点)
+                task.position = task.TrackEntityId is { Length: > 0 } && task.ClusterOffset.sqrMagnitude > 0f
+                    ? livePos + task.ClusterOffset
+                    : livePos;
+                task.angel = Bearing(task.position);
+                task.distance = DistKm(task.position);
+            }
+            MelonLogger.Msg($"[FCS] 变速采纳 {trackId}: v={liveVel.magnitude * 3.8164f:F3}km/s, 快照重置{(task.IsMoving ? "" : " (停车→静态, 落点改当前位置)")}");
         }
     }
 
@@ -979,19 +992,33 @@ public class FSC
         var hche = ClusterSolver.Best(ti.WorldPos, candidates,
             ShellData.BlastRadiusKm(BulletType.HCHE), friendlies, ShellData.FriendlySafeRadiusKm(BulletType.HCHE));
 
+        // DRIL 基准(3 点/个) + 时间补偿: 纯成本门槛 = ceil(成本/3)(HE 4/HCHE 6), 但集群一发省
+        // 多发装填+飞行(每发 ~60-90s, CBT 竞速时间即点数)——门槛降 1: HE(10)→≥3(贵1点省2发时间)、
+        // HCHE(18)→≥5(贵3点省4发时间)。低于门槛(2 个以内)走单点 DRIL。
+        bool heValid = he.HasValue && he.Value.Count >= 3;
+        bool hcheValid = hche.HasValue && hche.Value.Count >= 5;
+        // 性价比选弹: 每申请点覆盖目标数 = 覆盖数/成本(HE 10 点, HCHE 18 点)。
+        // 交叉相乘免浮点: hche.Count×10 > he.Count×18 → HCHE 每点覆盖更多 → 升级。
+        // 例: HE 3 vs HCHE 5 → 3×18=54 > 5×10=50 → HE 更划算(保持); HE 2 vs HCHE 5 → 2×18<5×10 → HCHE。
+        bool hcheWorthIt = hcheValid && (!heValid
+            || hche.Value.Count * ShellData.Cost(BulletType.HE) > he.Value.Count * ShellData.Cost(BulletType.HCHE));
+
         BulletType shell;
         Vector3 impact;
         int coverCount;
-        if (he.HasValue && he.Value.Count >= 2) { shell = BulletType.HE; impact = he.Value.Impact; coverCount = he.Value.Count; }
-        else if (hche.HasValue && hche.Value.Count >= 2) { shell = BulletType.HCHE; impact = hche.Value.Impact; coverCount = hche.Value.Count; }
+        if (heValid && !hcheWorthIt) { shell = BulletType.HE; impact = he.Value.Impact; coverCount = he.Value.Count; }
+        else if (hcheValid) { shell = BulletType.HCHE; impact = hche.Value.Impact; coverCount = hche.Value.Count; }
         else return null;
 
         // 实测毁伤半径: 落点 1km 内所有存活目标距落点的径向距离 + 覆盖数。
         // 配合 Reconcile 击杀日志读出真实杀伤半径(维基 0.27/0.63 疑似偏大——覆盖成员没死)。
+        // 探针: MEC 半径(he/hche) + 覆盖目标 WorldPos 原始坐标——对照游戏 UI 定位 20% 距离偏差。完成后移除。
         var nearby = EntityLocator.AliveHostiles
             .Where(h => (h.WorldPos - impact).magnitude * ShellData.KmPerWorldUnit < 1.0f)
             .Select(h => $"{h.EntityId}@{(h.WorldPos - impact).magnitude * ShellData.KmPerWorldUnit:F2}km");
-        MelonLogger.Msg($"[FCS] 集群 {ti.EntityId}: {shell} 落点{DistKm(impact):F2}km 覆盖{coverCount}个{(ti.IsMoving ? " [移动]" : "")} | 1km内: {string.Join(" ", nearby)}");
+        var candPos = candidates
+            .Select(p => $"({p.x:F3},{p.y:F3},{p.z:F3})");
+        MelonLogger.Msg($"[FCS] 集群 {ti.EntityId}: {shell} 落点{DistKm(impact):F2}km MECr={((shell == BulletType.HE ? he : hche).Value.RadiusKm):F2}km 覆盖{coverCount}个{(ti.IsMoving ? " [移动]" : "")} | 1km内: {string.Join(" ", nearby)} | 候选:{string.Join(" ", candPos)}");
 
         // 移动集群覆盖成员: 击发时按 entityId 登记——爆区几何以落点为中心, 车列在落点后方,
         // 在飞期间几何屏蔽拦不住, 需按实体屏蔽(死亡由 Reconcile 释放)。
@@ -1020,13 +1047,17 @@ public class FSC
             useMaxCharge = false,
             Source = TaskSource.Auto,
             BlastRadiusKm = ShellData.BlastRadiusKm(shell),
-            // 移动集群: 冻结快照带整簇(装填期采纳无必要——速度已知), 提前量路径击发前重算提前点
+            // 移动集群: 冻结快照带整簇(装填期采纳无必要——速度已知), 提前量路径击发前重算提前点。
+            // TrackEntityId=领队: 车列剧情停车/变速时二次采纳(AdoptVelocityIfNeeded)跟踪对象。
+            // ClusterOffset=落点相对领队: 停车采纳时落点跟领队平移, 保持车列中点。
             IsMoving = ti.IsMoving,
             AimP0 = impact,
             AimVel = ti.Velocity,
             AimStartTime = Time.time,
             VelocityUnknown = false,
             ClusterMembers = members,
+            TrackEntityId = ti.EntityId,
+            ClusterOffset = impact - ti.WorldPos,
         };
     }
 

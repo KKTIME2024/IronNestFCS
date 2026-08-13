@@ -13,37 +13,43 @@ public static class ShellData
     public static float KmToWorld(float km) => km / KmPerWorldUnit;
 
     /// <summary>
-    /// 致死半径(km)——实测校准(2026-08-12):
-    ///   HE 0.24km 4发不死(集群成员连续4轮存活)、HCHE 0.60km 不死 → 维基"毁伤半径"是满伤包络, 非致死半径。
-    ///   单点(≈0km)一发必死。取值取下界一半, 留余量; 集群只包"真炸得死"的目标。
-    ///   注: 0.27/0.63 原值会让集群成员活着, 同一落点被反复重打(实测 4 发 HE 空耗)。
+    /// 致死半径(km)——实测致死边界(2026-08-13, 多装药验证):
+    ///   HE: 0.17km 死、0.21km 活(1 包和 6 包都验证) → 致死 ≈0.19。转盘 0.23 对 HE 偏大
+    ///   (0.21 ≤ 0.23 覆盖判定通过但炸不死 → 漏杀目标被反复重打; 收紧后边缘目标走单点直击)。
+    ///   HCHE: 0.43km 杀、0.47km 活 → 致死 ≈0.45, 取 0.43(已验证 0.43 集群全杀)。
+    ///   覆盖判定与注册表爆区屏蔽统一用它——边缘目标不入选集群也不被屏蔽 → 立即单点直击打死。
+    ///   ShellDefinition.ImpactRadius(HE 0.25/HCHE 0.55)是满伤包络, 仅作友军禁区基数。
     /// </summary>
     public static float BlastRadiusKm(BulletType t) => t switch
     {
-        BulletType.AP => 0.08f,
-        BulletType.HE => 0.12f,
-        BulletType.HCHE => 0.30f,
-        BulletType.LE => 0.08f,   // 轻弹, 单点用; 半径与 AP 相同(用户确认)
+        BulletType.AP => 0.10f,
+        BulletType.DRIL => 0.05f,   // 超小毁伤半径(包络 0.07×0.7)——单点精确弹, 不误伤/不屏蔽邻居
+        BulletType.HE => 0.19f,
+        BulletType.HCHE => 0.43f,
+        BulletType.LE => 0.10f,
         _ => 0f
     };
 
-    /// <summary>杀伤包络(维基毁伤半径): 包络内即可能被杀伤——友军禁区基数, 集群覆盖不用它(致死半径更小)</summary>
+    /// <summary>杀伤包络(ShellDefinition.ImpactRadius 实测): 包络内可能受伤(含衰减区)——友军禁区基数,
+    /// 集群覆盖不用它(致死半径更小)。</summary>
     public static float DamageRadiusKm(BulletType t) => t switch
     {
-        BulletType.AP => 0.14f,
-        BulletType.HE => 0.27f,
-        BulletType.HCHE => 0.63f,
-        BulletType.LE => 0.14f,   // 与 AP 相同(用户确认)
+        BulletType.AP => 0.15f,
+        BulletType.DRIL => 0.07f,   // ImpactRadius 实测
+        BulletType.HE => 0.25f,
+        BulletType.HCHE => 0.55f,
+        BulletType.LE => 0.15f,   // 与 AP 相同(实测一致)
         _ => 0f
     };
 
     /// <summary>友军禁区半径 = 杀伤包络 + 20% 余量(不赌包络边缘)</summary>
     public static float FriendlySafeRadiusKm(BulletType t) => DamageRadiusKm(t) * 1.2f;
 
-    /// <summary>成本(申请点)。正式版: AP/HE=10, HCHE=18。</summary>
+    /// <summary>成本(申请点)。正式版: AP/HE=10, HCHE=18, DRIL=3(用户确认——软目标单点首选, 省 70%)。</summary>
     public static int Cost(BulletType t) => t switch
     {
         BulletType.HCHE => 18,
+        BulletType.DRIL => 3,
         _ => 10
     };
 }
