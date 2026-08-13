@@ -62,6 +62,8 @@ public class FSC
     /// <summary>齐射方位容差(度): 两管目标方位差小于此值视为同方向, 放行双管齐射(玩家拉一次扳机=双弹)。
     /// 过严=丢齐射(退化为串行); 过松=近距目标误齐射。0.1°@10km≈17m。实战校准。</summary>
     private const float SalvoBearingToleranceDeg = 0.1f;
+    /// <summary>Piece 自动归位容差(地图局部单位): 超过此值视为放错位置, 拉回真实炮塔。过小会每 5s 抖动。</summary>
+    private const float TurretPieceSnapTolerance = 0.01f;
     /// <summary>移动任务装药预测: 额外覆盖装填时长不确定性的距离余量(km)</summary>
     private const float MovingDistanceMarginKm = 1.5f;
 
@@ -95,6 +97,7 @@ public class FSC
     /// （此时炮塔已由后台预约持有，再去抢 desk），解算/确认弹只单独用 desk，故无环、不死锁。
     /// </summary>
     private readonly CoroutineLock _turretLock = new();
+    private float _lastPieceSyncTime;   // Piece 自动归位节流
 
     // 正在运行的协程句柄。Dispose 时全部停掉，避免热重载后旧 ALC 的协程继续执行导致崩溃。
     private readonly List<object> _runningCoroutines = new();
@@ -373,6 +376,21 @@ public class FSC
         // 面板倒计时归零(=射表估计落地)的任务移出在飞列表
         if (InFlight.Count > 0)
             InFlight.RemoveAll(t => Time.time - t.FiredAt >= t.EstimatedToF);
+        // Piece 自动归位: 忘了放/紧急移动后 5s 内自愈(手动/自动都生效)
+        if (Time.time - _lastPieceSyncTime > 5f) {
+            _lastPieceSyncTime = Time.time;
+            SyncTurretPiece();
+        }
+    }
+
+    /// <summary>自动归位 Player Turret Piece 到真实炮塔位置(忘了放/紧急移动后找不到自己时自愈)。
+    /// Piece 与 GetTurretLocal 都是地图局部坐标, 直接写 localPosition。TurretLocation 找不到时 GetTurretLocal 回退自身 → 无操作。</summary>
+    public void SyncTurretPiece() {
+        var piece = MapTable.Turret;
+        if (piece == null) return;
+        var real = MapTable.GetTurretLocal();
+        if ((piece.localPosition - real).magnitude > TurretPieceSnapTolerance)
+            piece.localPosition = real;
     }
 
     /// <summary>键盘快捷键触发射击目标（小键盘 1-4）</summary>

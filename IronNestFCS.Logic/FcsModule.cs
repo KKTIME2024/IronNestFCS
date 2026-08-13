@@ -28,6 +28,7 @@ public class FcsModule : IFcsModule
         fcs.EntityLocator = radar;   // 手动任务目标解析
         fcs.OnGunIdle += OnGunIdle;
         bool bound = fcs.TryBind();
+        if (bound) fcs.SyncTurretPiece();   // 开局强制归位 Piece 一次(忘了放也准)
         return bound;
     }
 
