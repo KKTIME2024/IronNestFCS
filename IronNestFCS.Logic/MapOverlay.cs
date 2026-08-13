@@ -25,7 +25,10 @@ public class MapOverlay
     private const float RingFillAlphaFiring = 0.2f; // 圈填充透明度(在飞)
     private const float PathLengthKm = 1.5f;        // 移动路径固定可见长度(km)
     private const float LineWidthWorld = 0.03f;     // 线宽(世界单位)
+    private const float LeaderWidthWorld = 0.02f;   // 引线宽(世界单位, 比主线细)
     private const float LabelFontSize = 2f;         // 标签字号(世界空间 scale)
+    private const float LabelOffsetMapUnits = 0.3f; // 圈标签右上偏移(地图局部单位, 调参)
+    private const int OverlayFrontQueue = 3001;     // 引线/文字 renderQueue, 盖过火力线(opaque 2000)
     private const int CircleSegments = 48;
     private const int DashSegments = 6;             // 移动路径虚线段数
     private const float KmPerMapUnit = 3.8164f;     // map-local 距离 × 3.8164 = km (与 FSC.DistKm 同)
@@ -53,6 +56,7 @@ public class MapOverlay
         public LineRenderer? ring;
         public GameObject? fill;
         public TextMeshPro? label;
+        public LineRenderer? leader;    // 标签→落点 深红引线
         public LineRenderer? fireLine;
         public TextMeshPro? fireLabel;
         public LineRenderer? path;
@@ -95,6 +99,7 @@ public class MapOverlay
         ring = MakeLine("OverlayRing"),
         fill = MakeFill(),
         label = MakeText("", "OverlayLabel"),
+        leader = MakeFrontLine("OverlayLeader"),
         fireLine = MakeLine("OverlayFireLine"),
         fireLabel = MakeText("", "OverlayFireLabel"),
         path = MakeDashedLine("OverlayPath"),
@@ -102,8 +107,9 @@ public class MapOverlay
     };
 
     private void DestroySlot(Slot s) {
-        foreach (var go in new[] { s.ring?.gameObject, s.fill, s.label?.gameObject, s.fireLine?.gameObject,
-                                    s.fireLabel?.gameObject, s.path?.gameObject, s.speedLabel?.gameObject }) {
+        foreach (var go in new[] { s.ring?.gameObject, s.fill, s.label?.gameObject, s.leader?.gameObject,
+                                    s.fireLine?.gameObject, s.fireLabel?.gameObject, s.path?.gameObject,
+                                    s.speedLabel?.gameObject }) {
             if (go == null) continue;
             tracked.Remove(go);
             Object.Destroy(go);
@@ -140,13 +146,19 @@ public class MapOverlay
             SetFillAlpha(s.fill, firing ? RingFillAlphaFiring : RingFillAlpha);
         }
 
-        // 圈标签: 弹种 / 整数秒倒计时, 圆心两行
+        // 圈标签: 弹种 / 整数秒倒计时, 落点右上偏移 + 深红引线到落点
         if (s.label != null) {
             int secs = firing
                 ? Mathf.Max(0, (int)(t.EstimatedToF - (Time.time - t.FiredAt)))
                 : (int)t.EstimatedToF;
-            s.label.text = $"{t.bulletType}\n{secs}s";
-            s.label.transform.localPosition = impact;
+            s.label.text = $"{t.bulletType} {secs}s";
+            Vector3 labelPos = impact + new Vector3(LabelOffsetMapUnits, LabelOffsetMapUnits, 0f);
+            s.label.transform.localPosition = labelPos;
+            if (s.leader != null) {
+                s.leader.positionCount = 2;
+                s.leader.SetPosition(0, labelPos);
+                s.leader.SetPosition(1, impact);
+            }
         }
 
         // 火力线: 玩家 → 落点
@@ -199,6 +211,24 @@ public class MapOverlay
         return lr;
     }
 
+    /// <summary>置顶深红细线(引线): 透明 + 高 renderQueue, 盖过火力线。</summary>
+    private LineRenderer MakeFrontLine(string name) {
+        var go = NewChild(name);
+        var lr = go.AddComponent<LineRenderer>();
+        lr.useWorldSpace = false;
+        lr.positionCount = 0;
+        lr.startWidth = lr.endWidth = LeaderWidthWorld;
+        lr.loop = false;
+        FcsSceneInteractor.SetColor(go, LineColor);
+        var mat = lr.material;
+        if (mat != null) {
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // 透明 → 排在 opaque 后
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);
+            mat.renderQueue = OverlayFrontQueue;
+        }
+        return lr;
+    }
+
     private LineRenderer MakeDashedLine(string name) {
         var go = NewChild(name);
         var lr = go.AddComponent<LineRenderer>();
@@ -230,6 +260,9 @@ public class MapOverlay
         // 深描边: 任何地形(含黑白航拍)上都可读
         tmp.outlineWidth = 0.15f;
         tmp.outlineColor = new Color(0f, 0f, 0f, 0.85f);
+        // 置顶: 文字 renderQueue 高于火力线, 压线也读得清
+        var rend = go.GetComponent<Renderer>();
+        if (rend != null && rend.material != null) rend.material.renderQueue = OverlayFrontQueue;
         return tmp;
     }
 
