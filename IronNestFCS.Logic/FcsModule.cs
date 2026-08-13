@@ -14,7 +14,6 @@ public class FcsModule : IFcsModule
     private readonly FSC fcs = new();
     private FcsWindow? window;
     private TacticalRadar? radar;
-    private MapOverlay? overlay;
 
     private float lastScanTime;
     private float nextSweepTime;
@@ -26,7 +25,6 @@ public class FcsModule : IFcsModule
     {
         window = new FcsWindow(fcs);
         radar = new TacticalRadar(fcs);
-        overlay = new MapOverlay(fcs);
         fcs.EntityLocator = radar;   // 手动任务目标解析
         fcs.OnGunIdle += OnGunIdle;
         bool bound = fcs.TryBind();
@@ -110,7 +108,6 @@ public class FcsModule : IFcsModule
     public void Update()
     {
         fcs.Update();
-        overlay?.Update();
 
         // 被动扫描:全自动模式下每 5s 周期重扫+派发(在飞窗口到期后恢复派发,或双管全空时补派);
         // 手动模式雷达完全休眠
@@ -209,10 +206,8 @@ public class FcsModule : IFcsModule
     {
         fcs.OnGunIdle -= OnGunIdle;
         fcs.Dispose();
-        overlay?.Shutdown();
         window = null;
         radar = null;
-        overlay = null;
     }
 
     /// <summary>找到所有蒸汽泄漏点，收紧最近阀门到指定值（0=拧紧, 999=全开）</summary>
