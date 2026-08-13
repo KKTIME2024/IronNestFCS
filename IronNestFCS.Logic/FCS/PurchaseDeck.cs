@@ -22,6 +22,11 @@ public class PurchaseDeck {
                 bulletCards[BulletType.APHCHE] = card.transform;
                 continue;
             }
+            // AP 卡: 游戏内卡 ID 是 "APShell", 去掉 Shell 后是 "AP", 而枚举名是 APHE——直接特判
+            if (card.CurrentDefinition.ID == "APShell") {
+                bulletCards[BulletType.APHE] = card.transform;
+                continue;
+            }
             if (TryParse(
                     card.CurrentDefinition.ID.Replace("SMOKE", "SMK").Replace("Shell", ""),
                     out BulletType type
