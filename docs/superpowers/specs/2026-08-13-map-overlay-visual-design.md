@@ -49,6 +49,7 @@
 - 内容：`12.3km 047°`
 - 颜色：**深红（与线同色）**——线和它的标注是一个打击单元
 - 位置：**顺线书写**——从玩家侧向目标侧，横过来与线平行，自动翻转保证从观看角度永远正读（仿原版尺规/量测标注沿线的写法）
+- **地图静态**（不旋转不拖动）→ 翻转 map-relative 即 screen-relative，稳定，无需 counter-rotate
 
 ### 5. 移动目标前进路线
 - 样式：**白虚线 + 端头箭头**（借原版"尺规"语义）
@@ -105,7 +106,7 @@
 - **`MapOverlay` 类**（`IronNestFCS.Logic/MapOverlay.cs`），由 `FcsModule` 持有（与 `TacticalRadar` 同级），保持 FSC 纯领域逻辑分离。
 - **槽管理：按任务创建/销毁**（dict：任务 → 槽）。任务进入 `LeftTask/RightTask/InFlight` 时建槽，离开三者后销毁。任务周期 ~30s，~7 对象/30s 的分配可忽略；固定池零分配收益在 1Hz + 慢任务节奏下 moot。**长期维护 + 上游兼容均选此**（简单 + 冲突面相同）。
 - **每槽渲染对象**：圈环 LineRenderer + 圈标签 TextMeshPro + 火力线 LineRenderer + 火力线标签 TextMeshPro + 移动路径 LineRenderer + 速度标签 TextMeshPro。
-- **对象是 Draggable Surface 子物体**——跟地图拖动/缩放/旋转走。
+- **对象是 Draggable Surface 子物体**——地图静态（不旋转不拖动），子物体只为坐标帧一致，非跟踪。
 - **1Hz tick**（FcsModule.Update 调用，内部节流）：收集活动任务去重 → 移动目标用 `TargetLeadSolver.LeadPoint` 复算提前点 → 更新 transform/文字 → 销毁失效槽。
 - **坐标**：世界→map-local 加 `MapTable.WorldToMapLocal()`；圈半径 km→map-local = `blastKm / 3.8164`。
 - **生命周期**：对象登记 `destroyOnShutdown`，热重载安全。
