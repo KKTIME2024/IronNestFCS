@@ -10,6 +10,8 @@ public class MapTable {
     private Transform? fireMissionRoot;
     private FireMission? fireMission;
     private Transform? mapSurface;
+    /// <summary>真实炮塔: MapRoot 下的固定子物体, 玩家拖动不移动它</summary>
+    private Transform? turretLocation;
 
     /// <summary>炮塔 Transform 只读访问(供 TacticalRadar 等使用)</summary>
     public Transform? Turret => turret;
@@ -29,6 +31,12 @@ public class MapTable {
         }
 
         turret = turretObject.transform;
+        var turretLocObject = GameObject.Find("TurretLocation");
+        if (turretLocObject != null) {
+            turretLocation = turretLocObject.transform;
+        } else {
+            MelonLogger.Warning("[FCS] 未找到 TurretLocation，回退 Player Turret Piece");
+        }
         mapSurface = mapObject.transform;
         var map = mapObject.transform;
         for (var i = 0; i < map.childCount; ++i) {
@@ -49,6 +57,15 @@ public class MapTable {
         fireMissionRoot = fireMissionObject.transform;
         fireMission = fireMissionRoot.GetComponent<FireMission>();
         return fireMission != null;
+    }
+
+    /// <summary>真实炮塔坐标 → 地图局部坐标。
+    /// TurretLocation 是 MapRoot 下的固定子物体（玩家拖动不移动），
+    /// Player Turret Piece 是可拖动标记，仅作回退。</summary>
+    public Vector3 GetTurretLocal() {
+        if (turretLocation != null && mapSurface != null)
+            return mapSurface.InverseTransformPoint(turretLocation.position);
+        return turret != null ? turret.localPosition : Vector3.zero;
     }
 
     public ArtilleryTask? GetMarkTarget(int index) {
