@@ -59,6 +59,9 @@ public class FSC
     /// <summary>机构就绪容差(度): 双机构与 aim 差小于此值且 CanFire 才进入确认。
     /// 1° 已够——毁伤半径兜底(10km 处 1° ≈ 175m), 高装药压低漂移率(~0.3°/s)保证收敛。</summary>
     private const float AimToleranceDeg = 1f;
+    /// <summary>齐射方位容差(度): 两管目标方位差小于此值视为同方向, 放行双管齐射(玩家拉一次扳机=双弹)。
+    /// 过严=丢齐射(退化为串行); 过松=近距目标误齐射。0.1°@10km≈17m。实战校准。</summary>
+    private const float SalvoBearingToleranceDeg = 0.1f;
     /// <summary>移动任务装药预测: 额外覆盖装填时长不确定性的距离余量(km)</summary>
     private const float MovingDistanceMarginKm = 1.5f;
 
@@ -669,13 +672,29 @@ public class FSC
             // 两管任务同时进击发段 = 双管齐射。锁由后台持有到击发完成(ReleaseTurretOnce)。
             // 仰角杆每管独立——等锁期间照样追仰角(与另一管并行), 只有方位/击发段被锁串行化。
             task.progress = Progress.Aiming;
-            while (!turret.Acquired) {
+            // 同方位齐射门: 另一管与本管目标方位差 ≤ 容差 → 放行, 两管都进击发流程,
+            // 玩家拉一次扳机 = 双弹齐射(如 AP+HE 打同一目标)。不同方位仍等锁串行——
+            // 座圈只能一个方向, 齐射必一发偏; 放行后两管驱动同一方位值, 不抢舵。
+            while (!turret.Acquired && !SameBearingAsOther()) {
                 TryComputeAimTargets(task, out _, out var elev);
                 gunSys.SetElevationTarget(elev);
                 yield return null;
             }
             turret.Aiming = true;   // 主流程接管方位(后台停止驱动)
             MelonLogger.Msg($"[FCS] {leftRight} 炮塔锁已持有, 进入瞄准/击发段");
+
+            // 另一管当前目标方位与本管差 ≤ 容差 → 可齐射放行。移动目标只放行同实体:
+            // 不同移动目标同方位会随时间发散 → 两管收敛循环抢舵(锁门原本防的正是抢舵)。
+            bool SameBearingAsOther()
+            {
+                var other = leftRight == LeftRight.Left ? RightTask : LeftTask;
+                if (other == null) return false;
+                if ((task.IsMoving || other.IsMoving)
+                    && (task.entityId is not { Length: > 0 } || task.entityId != other.entityId)) return false;
+                TryComputeAimTargets(task, out var b, out _);
+                TryComputeAimTargets(other, out var ob, out _);
+                return Mathf.Abs(Mathf.DeltaAngle(b, ob)) <= SalvoBearingToleranceDeg;
+            }
             var aimTrackStart = Time.time;
             while (true) {
                 TryComputeAimTargets(task, out var bearingTarget, out var elevTarget);
@@ -715,8 +734,24 @@ public class FSC
                     // 确认序列 ~3-4s 期间 aim 漂移(机构追着走); 复检对齐后再打(5s 内追上, 否则尽力打)
                     var recheckStart = Time.time;
                     while (!AlignOk(task, gunSys, AimToleranceDeg) && Time.time - recheckStart < 5f) yield return null;
-                    TriggerConsole.Fire();
-                    yield return gunSys.WaitFire();
+                    if (turret.Acquired) {
+                        // 只有持锁者拉扳机——全局扳机击发所有已武装炮管, 同方位齐射由它一并带出
+                        TriggerConsole.Fire();
+                        yield return gunSys.WaitFire();
+                    } else {
+                        // 同方位非持锁者: 已武装, 等持锁者击发带自己(直接 Fire 会双重 AddEnergy);
+                        // 持锁者若瞄准失败放弃 → 自己拿到锁后兜底击发, 防 AutoFire 下永久挂起
+                        while (!gunSys.IsPendingReload() && !turret.Acquired) {
+                            TryComputeAimTargets(task, out var b, out var e);
+                            Turret.SetDesiredRotation(b);
+                            gunSys.SetElevationTarget(e);
+                            yield return null;
+                        }
+                        if (!gunSys.IsPendingReload() && turret.Acquired) {
+                            TriggerConsole.Fire();
+                            yield return gunSys.WaitFire();
+                        }
+                    }
                 } else {
                     // AutoFire 关: 持续跟踪 aim(t) 直到玩家扳机——否则炮管停在旧点, 移动目标必偏。
                     // 静态任务此循环目标值恒定, 退化为无操作等待。
@@ -793,8 +828,9 @@ public class FSC
     private IEnumerator ReserveTurretAndRotate(ArtilleryTask task, TurretReservation res) {
         yield return _turretLock.Acquire();
         res.Acquired = true;
-        if (res.Canceled) {
-            ReleaseTurretOnce(res);
+        // 主流程可能在抢到锁前已结束(取消/同方位齐射非持锁者提前完成)——拿到锁立即归还, 防锁泄漏。
+        if (res.Canceled || res.Released) {
+            _turretLock.Release();
             yield break;
         }
         while (!res.Released) {
@@ -805,12 +841,12 @@ public class FSC
         }
     }
 
-    /// <summary>归还炮塔锁，保证恰好一次。仅在确实持有（Acquired）且未归还时执行。</summary>
+    /// <summary>归还炮塔锁。Released 标记"主流程已结束占用"(无论是否持锁), 后台抢到锁时据此自归。
+    /// 只在确实持锁(Acquired)时立即释放; 未持锁的提前结束(同方位齐射非持锁者)由后台拿到锁后归还。</summary>
     private void ReleaseTurretOnce(TurretReservation res) {
-        if (res.Acquired && !res.Released) {
-            res.Released = true;
-            _turretLock.Release();
-        }
+        if (res.Released) return;
+        res.Released = true;
+        if (res.Acquired) _turretLock.Release();
     }
 
     // ===== 连续瞄准几何与 aim 辅助（统一路径共用）=====
