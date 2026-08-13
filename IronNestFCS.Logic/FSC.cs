@@ -723,13 +723,9 @@ public class FSC
             // ===== 击发（turret 锁仍由后台持有, 直接确认+击发）=====
             task.progress = Progress.WaitingForFire;
             try {
-                yield return TriggerConsole.ConfirmTask();
-                yield return TriggerConsole.ConfirmBullet();
-                yield return TriggerConsole.ConfirmRotation();
-                yield return TriggerConsole.ConfirmElevation();
-                yield return TriggerConsole.ReadyToFire();
+                // 臂杆按下与 5 个确认并行(开关是纯 0/1 flag, 一口气点完, 在臂杆保持期内完成)。
                 // 臂杆自动拉下 = 该炮管就绪(此刻方位/仰角已收敛, 不会在错误方向角臂下)
-                yield return TriggerConsole.Arm(leftRight);
+                yield return TriggerConsole.ArmWithFastConfirm(leftRight);
                 if (_sceneInteractor.AutoFire || task.forceFire) {
                     // 确认序列 ~3-4s 期间 aim 漂移(机构追着走); 复检对齐后再打(5s 内追上, 否则尽力打)
                     var recheckStart = Time.time;
