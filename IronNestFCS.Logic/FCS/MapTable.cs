@@ -107,6 +107,12 @@ public class MapTable {
         marker.localPosition = turret.localPosition;
     }
 
+    /// <summary>世界坐标 → 地图局部坐标(overlay 渲染用)。地图静态, 直接 InverseTransformPoint。</summary>
+    public Vector3 WorldToMapLocal(Vector3 worldPos) {
+        if (mapSurface == null) return worldPos;
+        return mapSurface.InverseTransformPoint(worldPos);
+    }
+
     /// <summary>指定编号标记的世界坐标(手动任务目标解析与位置提交用)</summary>
     public Vector3 GetMarkerWorldPos(int index)
     {
