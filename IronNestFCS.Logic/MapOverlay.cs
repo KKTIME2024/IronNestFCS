@@ -116,6 +116,8 @@ public class MapOverlay
         public string fireLabelText = "";
         public string speedText = "";
         public int barrel;                               // 0=左炮 1=右炮(标签镜像方向用; 在飞任务沿用创建时标记)
+        public Vector3 lastImpact = new(float.MinValue, float.MinValue, float.MinValue); // 上次落点(几何仅变化时更新)
+        public Vector3? frozenImpact;                    // 击发瞬间锁存的落点(在飞期火力线/弹着点固定)
 
         public Slot(Transform mapSurface)
         {
@@ -152,8 +154,24 @@ public class MapOverlay
     private void UpdateSlot(Slot s, ArtilleryTask t)
     {
         // 落点: 静态=目标位置; 移动=提前点(与 FSC 瞄准同公式)
+        // 击发后锁存: 在飞期火力线/弹着点固定, 不再随目标外推(与 FSC 在飞注册表语义一致)
         Vector3 impactMap = ImpactMapLocal(t);
+        if (t.Fired)
+        {
+            if (s.frozenImpact == null) s.frozenImpact = impactMap;
+            impactMap = s.frozenImpact.Value;
+        }
+        else
+        {
+            s.frozenImpact = null;
+        }
+        // 静态几何仅在落点变化时更新: 静态目标任务周期内零更新, 在飞任务击发后零更新
+        bool impactChanged = (impactMap - s.lastImpact).sqrMagnitude > 1e-10f;
+        if (impactChanged) s.lastImpact = impactMap;
         Vector3 player = fcs.MapTable.GetTurretLocal();
+
+        if (impactChanged)
+        {
         s.root.transform.localPosition = new Vector3(impactMap.x, impactMap.y, ZGeom);
 
         // 毁伤圈: 24 段正圆, 半径 = 注册表同源 BlastRadiusKm(回滚: 缺口/二次描圈像渲染 bug)
@@ -177,6 +195,7 @@ public class MapOverlay
             foreach (var g in s.ring) if (g.activeSelf) g.SetActive(false);
             if (s.centerMark != null && s.centerMark.activeSelf) s.centerMark.SetActive(false);
         }
+        }   // impactChanged 块结束(落点未变则不再触碰静态几何)
 
         // 圈标签: 手写注记式倒计时(炮兵秒符号 "); 左炮右上/右炮左上镜像, 引导线跟随
         int secs = t.Fired
@@ -205,8 +224,8 @@ public class MapOverlay
             tracked.Add(s.fireLine);
         }
         var fl = s.fireLine.GetComponent<Il2CppShapes.Line>();
-        SetLine(fl, player - impactMap, Vector3.zero);
-        fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线
+        fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线(击发翻转可能发生在落点未变的 tick, 单独每 tick 设)
+        if (impactChanged) SetLine(fl, player - impactMap, Vector3.zero);
 
         // 火力线标签: 距离/方位角; 线中点垂直线偏移(左炮线左/右炮线右, 防双线标签重合), 顺线旋转+自动翻转
         var dir = impactMap - player;
@@ -214,19 +233,19 @@ public class MapOverlay
         float bearing = Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg;   // 0°=+Y, 顺时针(同 GetMarkTarget 约定)
         if (bearing < 0f) bearing += 360f;
         string fireLabelText = $"{distKm:F1}km {bearing:F0}°";   // 小写 km: 手绘测量标注习惯
-        Vector3 fireLabelPos = (player - impactMap) * 0.5f;
-        if (dir.magnitude > 0.001f)
-        {
-            Vector3 perp = new Vector3(-dir.y, dir.x, 0f).normalized * PerpLabelOffset
-                * (s.barrel == 0 ? 1f : -1f);
-            fireLabelPos += perp;
-        }
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
+            Vector3 fireLabelPos = (player - impactMap) * 0.5f;
+            if (dir.magnitude > 0.001f)
+            {
+                Vector3 perp = new Vector3(-dir.y, dir.x, 0f).normalized * PerpLabelOffset
+                    * (s.barrel == 0 ? 1f : -1f);
+                fireLabelPos += perp;
+            }
             RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform, fireLabelPos);
         }
-        if (s.fireLabelRoot != null)
+        if (s.fireLabelRoot != null && impactChanged)
         {
             float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
             if (angle > 90f && angle < 270f) angle += 180f;   // 自动翻转保证从观看角度正读
