@@ -24,14 +24,14 @@ public class MapOverlay
     private const float TickInterval = 1f;
     private const float KmPerMapUnit = 3.8164f;    // map-local × 3.8164 = km (与 FSC.DistKm 同)
     private const int RingSegments = 24;
-    private const float RingThickness = 0.01f;     // 圈描边宽(板面单位)
-    private const float FireThickness = 0.010f;    // 火力线宽(手绘墨线, 不过分粗)
-    private const float LineThickness = 0.008f;    // 路径宽
-    private const float LeaderThickness = 0.005f;  // 引导线宽(虚线, 比主线弱一档)
+    private const float RingThickness = 0.005f;    // 圈描边宽(全部线宽砍半后)
+    private const float FireThickness = 0.005f;    // 火力线宽(砍半)
+    private const float LineThickness = 0.004f;    // 路径宽(砍半)
+    private const float LeaderThickness = 0.003f;  // 引导线宽(0.005/2=0.0025 低于可渲染下限 0.003)
     private const float CenterHalf = 0.03f;        // 圆心罗盘点小十字半长
-    private const float CenterThickness = 0.006f;  // 罗盘点十字宽
+    private const float CenterThickness = 0.003f;  // 罗盘点十字宽(砍半)
     private const int OverlayQueue = 3500;         // 绘制队列: 高于照片/地图不透明层(2000), 深度并列时线段后画胜出
-    private const float CharThickness = 0.010f;    // 字符段线宽(装机实测: 0.008 太细, 加粗后无需描边)
+    private const float CharThickness = 0.005f;    // 字符段线宽(砍半)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
