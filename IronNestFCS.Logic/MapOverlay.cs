@@ -36,8 +36,8 @@ public class MapOverlay
     private const float LabelOffset = 0.3f;        // 圈标签右上偏移(板面单位)
     private const float PathLengthKm = 1.5f;       // 移动路径固定可见长度(km)
     private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
-    private const float ZGeom = -0.02f;            // 几何层 z(板面局部, 负=朝上)
-    private const float ZLabel = -0.03f;           // 标签层 z
+    private const float ZGeom = -0.005f;           // 几何层 z(装机实测: 0.02 太浮空, 压到贴近板面)
+    private const float ZLabel = -0.008f;          // 标签层 z(比几何层略高, 压线可读)
 
     private static readonly Color RingColor = new(0.75f, 0.15f, 0.15f);   // 深红偏亮(毁伤圈)
     private static readonly Color LineColor = new(0.55f, 0.05f, 0.05f);   // 深红(火力线, 同游戏语义)
