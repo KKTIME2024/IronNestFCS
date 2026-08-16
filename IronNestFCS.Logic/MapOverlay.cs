@@ -27,10 +27,8 @@ public class MapOverlay
     private const float RingThickness = 0.01f;     // 圈描边宽(板面单位)
     private const float LineThickness = 0.008f;    // 火力线/路径宽
     private const float LeaderThickness = 0.005f;  // 引线宽(比主线细)
-    private const float CharThickness = 0.010f;    // 字符段线宽(主色, 占描边 77% 保证白色显白)
-    private const float OutlineThickness = 0.013f; // 描边段线宽(深色打底, 只比主色略粗)
+    private const float CharThickness = 0.010f;    // 字符段线宽(装机实测: 0.008 太细, 加粗后无需描边)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
-    private const float OutlineZOffset = 0.0015f;  // 描边段 z 下沉朝板面, 白色主段盖上面(防同面显灰)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
     private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
@@ -43,7 +41,6 @@ public class MapOverlay
     private static readonly Color LineColor = new(0.55f, 0.05f, 0.05f);   // 深红(火力线, 同游戏语义)
     private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);      // 白(移动路径, 尺规语义)
     private static readonly Color LabelColor = Color.white;
-    private static readonly Color OutlineColor = new(0f, 0f, 0f, 0.85f);
 
     private readonly FSC fcs;
     private Transform? mapSurface;
@@ -168,7 +165,7 @@ public class MapOverlay
         if (labelText != s.labelText)
         {
             s.labelText = labelText;
-            RebuildText(s, ref s.labelRoot, labelText, LabelColor, true, s.root.transform,
+            RebuildText(s, ref s.labelRoot, labelText, LabelColor, s.root.transform,
                 new Vector3(LabelOffset, LabelOffset, ZLabel - ZGeom));
             if (s.leader == null)
             {
@@ -198,7 +195,7 @@ public class MapOverlay
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
-            RebuildText(s, ref s.fireLabelRoot, fireLabelText, LineColor, false, s.root.transform,
+            RebuildText(s, ref s.fireLabelRoot, fireLabelText, LineColor, s.root.transform,
                 (player - impactMap) * 0.5f);
         }
         if (s.fireLabelRoot != null)
@@ -267,18 +264,18 @@ public class MapOverlay
     }
 
     /// <summary>文本变才重建: 销毁旧根, 建新根(线段字符), 挂到 parent 的 localPos。</summary>
-    private void RebuildText(Slot s, ref GameObject? root, string text, Color color, bool outline,
+    private void RebuildText(Slot s, ref GameObject? root, string text, Color color,
         Transform parent, Vector3 localPos)
     {
         if (root != null) { tracked.Remove(root); Object.Destroy(root); root = null; }
         if (string.IsNullOrEmpty(text)) return;
-        root = BuildText(parent, text, color, outline);
+        root = BuildText(parent, text, color);
         root.transform.localPosition = localPos;
         tracked.Add(root);
     }
 
-    /// <summary>线段字符文本根节点: 水平居中, 每字符若干 Line 段; outline=true 先画深色粗段打底。</summary>
-    private static GameObject BuildText(Transform parent, string text, Color color, bool outline)
+    /// <summary>线段字符文本根节点: 水平居中, 每字符若干 Line 段(无描边, 实测同面重叠发灰)。</summary>
+    private static GameObject BuildText(Transform parent, string text, Color color)
     {
         var go = new GameObject("FCS_OverlayText");
         go.transform.SetParent(parent, false);
@@ -299,14 +296,6 @@ public class MapOverlay
             {
                 var pa = new Vector3(x0 + a.x * segW * scale, (a.y + dy) * segW * scale, 0f);
                 var pb = new Vector3(x0 + b.x * segW * scale, (b.y + dy) * segW * scale, 0f);
-                if (outline)
-                {
-                    // 描边段 z 下沉朝板面(正 z = 靠板), 白色主段盖上面, 避免同面渲染显灰
-                    var oa = pa; oa.z += OutlineZOffset;
-                    var ob = pb; ob.z += OutlineZOffset;
-                    var og = MakeLine(go.transform, "FCS_CharSeg", OutlineColor, OutlineThickness, Vector3.zero);
-                    SetLine(og.GetComponent<Il2CppShapes.Line>(), oa, ob);
-                }
                 var cg = MakeLine(go.transform, "FCS_CharSeg", color, CharThickness, Vector3.zero);
                 SetLine(cg.GetComponent<Il2CppShapes.Line>(), pa, pb);
             }
