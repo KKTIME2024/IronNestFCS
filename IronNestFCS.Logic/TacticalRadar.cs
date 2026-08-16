@@ -88,7 +88,10 @@ public class TacticalRadar
         fcs.Registry.Reconcile(aliveIds);
 
         // CBT 模式级指纹: 本轮是否扫到存活 FDC(icon 含 fire direction) → CbtMonitor 模式识别
-        fcs.Cbt.HasFdc = targets.Any(t => t.IsFdc);
+        // 2026-08-16 稳定线停用: 反炮兵为实验模式(已知 bug 多且用户少用), 从发布版剔除——
+        // 不注入指纹 → IsCbtMode 永假 → 紧急移动/双轨装药/FDC 扣留/基金纪律/冻结窗口全部休眠,
+        // 行为与非反炮兵关一致(该路径已验证稳定)。CBT 修复在 dev 分支进行, 稳定后恢复本行。
+        fcs.Cbt.HasFdc = false;
 
         TacticalDecider.SortTargets(targets, fcs.Turret.LastSetAngle, fcs.Cbt.SortPhase);
         AliveHostiles = targets;
