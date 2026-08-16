@@ -27,8 +27,10 @@ public class MapOverlay
     private const float RingThickness = 0.01f;     // 圈描边宽(板面单位)
     private const float LineThickness = 0.008f;    // 火力线/路径宽
     private const float LeaderThickness = 0.005f;  // 引线宽(比主线细)
-    private const float CharThickness = 0.008f;    // 字符段线宽
-    private const float OutlineThickness = 0.014f; // 描边段线宽(盖过线段, 深色打底)
+    private const float CharThickness = 0.010f;    // 字符段线宽(主色, 占描边 77% 保证白色显白)
+    private const float OutlineThickness = 0.013f; // 描边段线宽(深色打底, 只比主色略粗)
+    private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
+    private const float OutlineZOffset = 0.0015f;  // 描边段 z 下沉朝板面, 白色主段盖上面(防同面显灰)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
     private const float LabelOffset = 0.3f;        // 圈标签右上偏移(板面单位)
@@ -98,10 +100,8 @@ public class MapOverlay
         public GameObject? labelRoot;                    // 圈标签(文本变时重建)
         public GameObject? fireLabelRoot;                // 火力线标签(文本变时重建)
         public GameObject? pathRoot;                     // 移动路径(虚线+箭头, 挂板面绝对位)
-        public GameObject? speedRoot;                    // 速度标签(文本变时重建)
         public string labelText = "";                    // 上次渲染文本, 仅变时重建
         public string fireLabelText = "";
-        public string speedText = "";
 
         public Slot(Transform mapSurface)
         {
@@ -129,7 +129,6 @@ public class MapOverlay
         if (s.labelRoot != null) yield return s.labelRoot;
         if (s.fireLabelRoot != null) yield return s.fireLabelRoot;
         if (s.pathRoot != null) yield return s.pathRoot;
-        if (s.speedRoot != null) yield return s.speedRoot;
     }
 
     // ==== 每 tick 更新 ====
@@ -161,11 +160,11 @@ public class MapOverlay
             foreach (var g in s.ring) if (g.activeSelf) g.SetActive(false);
         }
 
-        // 圈标签: 弹种 + 整数秒倒计时(与面板一致); 落点右上固定偏移 + 深红引线到落点
+        // 圈标签: 只保留倒计时数字(弹种前缀/单位后缀已按实测删减, 面板有完整信息)
         int secs = t.Fired
             ? Mathf.Max(0, (int)(t.EstimatedToF - (Time.time - t.FiredAt)))
             : (int)t.EstimatedToF;
-        string labelText = $"{t.bulletType} {secs}s";
+        string labelText = secs.ToString();
         if (labelText != s.labelText)
         {
             s.labelText = labelText;
@@ -236,23 +235,11 @@ public class MapOverlay
             SetLine(dl, Vector3.zero, tip);
             SetLine(ar1, tip, tip - pathDir * ArrowLen + perp * ArrowLen * 0.6f);
             SetLine(ar2, tip, tip - pathDir * ArrowLen - perp * ArrowLen * 0.6f);
-
-            string speedText = $"{t.AimVel.magnitude * KmPerMapUnit * 3600f:F0}KM/H";
-            if (speedText != s.speedText)
-            {
-                s.speedText = speedText;
-                RebuildText(s, ref s.speedRoot, speedText, LabelColor, true, mapSurface, Vector3.zero);
-            }
-            if (s.speedRoot != null)
-            {
-                if (!s.speedRoot.activeSelf) s.speedRoot.SetActive(true);
-                s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + 0.3f, ZLabel);
-            }
+            // 速度标签已按实测删除(文字全部减负, 只留火力线标签+倒计时数字)
         }
         else
         {
             if (s.pathRoot != null && s.pathRoot.activeSelf) s.pathRoot.SetActive(false);
-            if (s.speedRoot != null && s.speedRoot.activeSelf) s.speedRoot.SetActive(false);
         }
     }
 
@@ -295,8 +282,9 @@ public class MapOverlay
     {
         var go = new GameObject("FCS_OverlayText");
         go.transform.SetParent(parent, false);
-        float step = LabelSegW * LabelSpacing;
-        float total = (text.Length - 1) * step + LabelSegW;
+        float segW = LabelSegW * TextScale;
+        float step = segW * LabelSpacing;
+        float total = (text.Length - 1) * step + segW;
         go.transform.localPosition = new Vector3(-total / 2f, 0f, 0f);
 
         for (int i = 0; i < text.Length; i++)
@@ -306,15 +294,18 @@ public class MapOverlay
             bool lower = char.IsLower(c);
             float scale = lower ? 0.72f : 1f;
             float dy = lower ? -0.3f : 0f;   // 小写字母压低到基线
-            float x0 = i * step + (1f - scale) * LabelSegW * 0.5f;
+            float x0 = i * step + (1f - scale) * segW * 0.5f;
             foreach (var (a, b) in SegmentsFor(c))
             {
-                var pa = new Vector3(x0 + a.x * LabelSegW * scale, (a.y + dy) * LabelSegW * scale, 0f);
-                var pb = new Vector3(x0 + b.x * LabelSegW * scale, (b.y + dy) * LabelSegW * scale, 0f);
+                var pa = new Vector3(x0 + a.x * segW * scale, (a.y + dy) * segW * scale, 0f);
+                var pb = new Vector3(x0 + b.x * segW * scale, (b.y + dy) * segW * scale, 0f);
                 if (outline)
                 {
+                    // 描边段 z 下沉朝板面(正 z = 靠板), 白色主段盖上面, 避免同面渲染显灰
+                    var oa = pa; oa.z += OutlineZOffset;
+                    var ob = pb; ob.z += OutlineZOffset;
                     var og = MakeLine(go.transform, "FCS_CharSeg", OutlineColor, OutlineThickness, Vector3.zero);
-                    SetLine(og.GetComponent<Il2CppShapes.Line>(), pa, pb);
+                    SetLine(og.GetComponent<Il2CppShapes.Line>(), oa, ob);
                 }
                 var cg = MakeLine(go.transform, "FCS_CharSeg", color, CharThickness, Vector3.zero);
                 SetLine(cg.GetComponent<Il2CppShapes.Line>(), pa, pb);
