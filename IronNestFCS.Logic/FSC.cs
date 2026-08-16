@@ -1702,6 +1702,7 @@ public class FSC
         {
             targetId = targetId,
             entityId = "",                                  // 位置提交(集群), 注册表按毁伤半径覆盖
+            entityName = ti.Name,                           // 领队显示名(面板识别用)
             angel = Bearing(impact),
             distance = DistKm(impact),
             position = impact,

@@ -20,6 +20,7 @@ public enum Progress {
 public class ArtilleryTask {
     public int targetId;
     public string entityId = "";   // MapEntity key for dedup
+    public string entityName = ""; // MapEntity.Name 显示名(面板目标识别用; 空则回退 entityId)
     public float angel;
     public float distance;
     public Vector3 position;

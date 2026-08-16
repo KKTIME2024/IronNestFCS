@@ -34,9 +34,9 @@ public class FcsWindow
         float lineH = h + 2f;
 
         float extra = 0f;
-        if (fcs.LeftTask != null) extra += lineH * 2;
+        if (fcs.LeftTask != null) extra += lineH * 3;
         else extra += lineH;
-        if (fcs.RightTask != null) extra += lineH * 2;
+        if (fcs.RightTask != null) extra += lineH * 3;
         else extra += lineH;
         extra += lineH * (fcs.PendingCount + 1);
         extra += 12f;
@@ -99,9 +99,9 @@ public class FcsWindow
         foreach (var item in fcs.QueueCan)
         {
             string maxChargeTag = item.useMaxCharge ? " [MAX]" : "";
-            // 排队任务不上 overlay 图, 方位/距离仍在面板展示
+            string itemName = string.IsNullOrEmpty(item.entityName) ? item.entityId : item.entityName;
             GUI.Label(new Rect(x, y, w, h),
-                $"  T{item.targetId}  {item.bulletType}  {item.angel,5:F1}°/{item.distance,5:F2}km{maxChargeTag}");
+                $"  {itemName}  {item.bulletType}  {item.angel,5:F1}°/{item.distance,5:F2}km{maxChargeTag}");
             y += lineH;
         }
     }
@@ -133,7 +133,14 @@ public class FcsWindow
         GUI.color = oldColor;
         y += lineH;
 
-        // 目标方位/距离与落地倒计时已由地图 overlay 的火力线标签/毁伤圈标签呈现, 面板不再重复
+        // 目标: 名称(MapEntity.Name, 空回退 entityId) + 方位角/距离(2026-08-17 用户: 补回方位角+目标名称)
+        string targetName = string.IsNullOrEmpty(task.entityName) ? task.entityId : task.entityName;
+        GUI.color = ClrLabel;
+        GUI.Label(new Rect(x + 12f, y, w - 12f, h),
+            $"{targetName}  {task.angel:F1}° / {task.distance:F2}km");
+        GUI.color = oldColor;
+        y += lineH;
+
         string chargeInfo = task.useMaxCharge ? "MAX" : BallisticCalculator.MinimumCharge(task.distance).ToString();
         GUI.color = ClrWarning;
         GUI.Label(new Rect(x + 12f, y, w - 12f, h),

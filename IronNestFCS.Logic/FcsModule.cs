@@ -126,6 +126,7 @@ public class FcsModule : IFcsModule
         {
             targetId = targetId,
             entityId = ti.EntityId,
+            entityName = ti.Name,
             angel = ti.Angle,
             distance = ti.Distance,
             position = ti.WorldPos,
