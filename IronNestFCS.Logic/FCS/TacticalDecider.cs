@@ -17,7 +17,8 @@ public static class TacticalDecider
         public string EntityId;     // MapEntity key (e.g. "target1")
         public float Angle;
         public float Distance;
-        public int Priority;     // 6:FDC, 5:火炮, 4:弹药库/高价值, 3:装甲/工事, 2:普通, 1:其他
+        public int Priority;     // 6:FDC, 5:火炮, 4:弹药库/高价值/3★, 3:装甲/工事, 2:普通, 1:其他
+        public int Stars;        // 星标等级 0-3(3★ = 印钞机)
         public bool IsArmored;
         public bool IsUnderground;
         public bool IsMoving;
@@ -29,24 +30,56 @@ public static class TacticalDecider
         public int ChildIndex;   // deprecated, use EntityId
         /// <summary>目标免疫的弹种 ID 集合（如 {"HE"}），用于自动弹种选择</summary>
         public HashSet<string> ImmuneShells;
+        /// <summary>是否 FDC(icon 含 fire direction, 模式指纹 + 暂停组合拳目标)</summary>
+        public bool IsFdc => Priority >= 6;
     }
 
     /// <summary>
     /// 排序：优先级降序 → 同优先级按总机械时间升序。
     /// 实测：高低机 0→60 = 32s (1.875/s)，方向机 84→0° = 25s (3.36°/s)。
     /// cost ≈ 仰角上下时间 + 炮塔转动时间 = distance×2.56 + angleDelta×0.30（秒）
+    /// CBT 双轨(§3.3)：宽裕期 3★ 印钞最高、吃紧期火炮(+30s)最高、FDC 仅吃紧放行。
     /// </summary>
-    public static void SortTargets(List<TargetInfo> targets, float currentAngle)
+    public static void SortTargets(List<TargetInfo> targets, float currentAngle, CbtMonitor.CbtPhase cbtPhase = CbtMonitor.CbtPhase.None)
     {
+        bool cbt = cbtPhase is CbtMonitor.CbtPhase.Wide or CbtMonitor.CbtPhase.Urgent or CbtMonitor.CbtPhase.Critical or CbtMonitor.CbtPhase.Opening or CbtMonitor.CbtPhase.Paused;
+        // Opening(倒计时未启动): 装填+飞行全不烧时间, 先打远目标白嫖更多(2026-08-15 用户指出
+        // 先打近浪费未开始时间)——同优先级下距离大优先。暂停窗口(Paused)同此理(2026-08-16):
+        // 窗口内弹不烧时间, 长 ToF 弹先落地=解除点 → 窗口 = 长 ToF(最大化);
+        // 实测短 ToF(近)先落地 → 窗口 = 短 ToF, 白白浪费窗口长度。
+        bool farFirst = cbtPhase is CbtMonitor.CbtPhase.Opening or CbtMonitor.CbtPhase.Paused;
         targets.Sort((a, b) =>
         {
-            int pc = b.Priority.CompareTo(a.Priority);
+            int pa = cbt ? CbtPriority(a, cbtPhase) : a.Priority;
+            int pb = cbt ? CbtPriority(b, cbtPhase) : b.Priority;
+            int pc = pb.CompareTo(pa);
             if (pc != 0) return pc;
+
+            if (farFirst) return b.Distance.CompareTo(a.Distance);   // 远优先
 
             float costA = a.Distance * 2.56f + AngleDelta(currentAngle, a.Angle) * 0.30f;
             float costB = b.Distance * 2.56f + AngleDelta(currentAngle, b.Angle) * 0.30f;
             return costA.CompareTo(costB);
         });
+    }
+
+    /// <summary>CBT 双轨优先级重映射(§3.3/§3.4): 只换数字, 排序管道不动。
+    /// 宽裕/开局: 3★(7,印钞) > 火炮(6) > 高价值/弹药库(5) > 1-2★(4) > 装甲/工事(3) > 普通(2), FDC(0)=扣留。
+    /// 吃紧/危急: 火炮(8,+30s 硬通货) > FDC(7,暂停组合拳) > 3★(5) > 高价值(4) > 1-2★(3) > 装甲/工事(2) > 普通(1)。
+    /// 暂停窗口(2026-08-16 用户修正): 火炮(8,+30s 顶倒计时是主角——FDC 暂停只冻结不解除危急,
+    /// 窗口内不打火炮则 FDC 循环白烧储备收益 0) > FDC(7,续暂停保底) > 3★(6) >
+    /// 高价值(5) > 1-2★(4) > 装甲/工事(3) > 普通(2)。窗口内无满装(最低装药=ToF 长=窗口长)。
+    /// 数值只用于排序, FDC 派发与否最终由 FcsModule.PickTarget 的 FdcDispatchable 把关。</summary>
+    private static int CbtPriority(TargetInfo t, CbtMonitor.CbtPhase phase)
+    {
+        bool urgent = phase is CbtMonitor.CbtPhase.Urgent or CbtMonitor.CbtPhase.Critical;
+        bool paused = phase == CbtMonitor.CbtPhase.Paused;
+        if (t.IsFdc) return paused ? 7 : urgent ? 7 : 0;   // 暂停窗口 FDC 7(火炮 8 优先); 宽裕期垫底(扣留)
+        if (t.Priority == 5) return paused ? 8 : urgent ? 8 : 6;   // 火炮: 窗口内 +30s 顶倒计时最优先
+        if (t.Priority == 4)
+            return paused ? 6 : t.Stars >= 3 ? (urgent ? 5 : 7) : (urgent ? 4 : 5); // 3★ 印钞 vs 高价值/弹药库
+        if (t.Priority == 3) return paused ? 4 : t.Stars >= 1 ? (urgent ? 3 : 4) : (urgent ? 2 : 3); // 1-2★ / 装甲工事
+        return paused ? 2 : urgent ? 1 : 2;                  // 普通
     }
 
     /// <summary>
@@ -63,14 +96,24 @@ public static class TacticalDecider
     /// 自动弹种选择：装甲/地下 → AP（穿透）；软目标单点 → DRIL（超小毁伤半径精确弹——
     /// 直击必死且不误伤/不屏蔽邻居，比 LE 更精确）。免疫时沿链降级：软 DRIL→LE→HE→HCHE、
     /// 甲 AP→HE→HCHE。注意：集群路径不经过这里（TryBuildClusterTask 直接选 HE/HCHE）。
+    /// CBT 基金纪律(§3.6, 仅 fundMargin != MaxValue 即 CBT 模式生效): AP 成本 10 点,
+    /// 仅 3★ 装甲或地下目标(弹药库/地堡 HE 打不穿, 必须 AP)且扣款后仍 ≥ 基金线才用;
+    /// 其余装甲降级 HE。非 CBT 模式任何装甲都打 AP。
     /// </summary>
-    public static BulletType ChooseShellType(TargetInfo t)
+    public static BulletType ChooseShellType(TargetInfo t, float fundMargin = float.MaxValue)
     {
         var immune = t.ImmuneShells ?? new HashSet<string>();
+        bool cbtDiscipline = fundMargin != float.MaxValue;
 
         if (t.IsArmored || t.IsUnderground)
         {
-            if (!immune.Contains(BulletType.AP.ToString())) return BulletType.AP;
+            // AP 成本 10 点(§3.6): CBT 下仅 3★ 装甲或地下目标, 且扣款后仍 ≥ 基金线才用;
+            // 地下目标(弹药库/地堡/FDC 指挥所)HE 打不穿 → 必须 AP, 不受星级限制
+            // (否则 2★ 仓库/地下 FDC 发 HE 白费)。FDC 特别化(2026-08-16 用户): 唯一炮弹
+            // 控制的 CBT 暂停来源——强制 AP 且不受基金纪律限制(买不起也买, 10 点破例;
+            // 基金纪律是普通地下/装甲目标的规则)。
+            bool apAllowed = t.IsFdc || (fundMargin >= 10f && (!cbtDiscipline || t.Stars >= 3 || t.IsUnderground));
+            if (apAllowed && !immune.Contains(BulletType.AP.ToString())) return BulletType.AP;
             if (!immune.Contains(BulletType.HE.ToString())) return BulletType.HE;
             return BulletType.HCHE;
         }

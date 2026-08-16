@@ -61,6 +61,19 @@ public class FcsWindow
         GUI.color = oldColor;
         y += lineH;
 
+        // CBT 状态行(无尽反炮兵模式: 阶段/剩余秒/积分)
+        if (fcs.Cbt.IsCbtMode)
+        {
+            float remain = fcs.Cbt.TimeRemaining;
+            string remainText = remain >= 0 ? $"{remain:F0}s" : "--";
+            GUI.color = fcs.Cbt.Phase == CbtMonitor.CbtPhase.Critical ? ClrFailed
+                : fcs.Cbt.Phase == CbtMonitor.CbtPhase.Urgent ? ClrWarning : ClrLabel;
+            GUI.Label(new Rect(x, y, w, h),
+                $"CBT {fcs.Cbt.Phase} {remainText} pts={fcs.Cbt.RequisitionPoints}");
+            GUI.color = oldColor;
+            y += lineH;
+        }
+
         DrawDivider(x, y, w);
         y += 4f;
 

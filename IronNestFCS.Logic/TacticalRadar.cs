@@ -69,6 +69,8 @@ public class TacticalRadar
     {
         AliveHostiles.Clear();
         AllyPositions.Clear();
+        // 每轮扫描刷新地图面引用(紧急移动转移可能重建, 5s 一次 Find 开销可接受)
+        _radarMapSurface = GameObject.Find("Draggable Surface")?.transform;
         var targets = new List<TacticalDecider.TargetInfo>();
         var aliveIds = new List<string>();
 
@@ -85,7 +87,10 @@ public class TacticalRadar
         // 击杀确认: 死亡目标的登记立即解除(打中的目标下轮扫描恢复可拣)
         fcs.Registry.Reconcile(aliveIds);
 
-        TacticalDecider.SortTargets(targets, fcs.Turret.LastSetAngle);
+        // CBT 模式级指纹: 本轮是否扫到存活 FDC(icon 含 fire direction) → CbtMonitor 模式识别
+        fcs.Cbt.HasFdc = targets.Any(t => t.IsFdc);
+
+        TacticalDecider.SortTargets(targets, fcs.Turret.LastSetAngle, fcs.Cbt.SortPhase);
         AliveHostiles = targets;
 
         var summary = string.Join(" | ", targets.Select(t =>
@@ -278,6 +283,7 @@ public class TacticalRadar
             Angle = CalcAngle(worldPos),
             Distance = CalcDistance(worldPos),
             Priority = CalcPriority(role, icon, stars),
+            Stars = stars,
             IsArmored = isArmored,
             IsUnderground = isUnderground,
             WorldPos = worldPos,
@@ -371,7 +377,10 @@ public class TacticalRadar
         foreach (var key in new[] {
             "bunker", "underground", "shelter", "bombproof", "pillbox", "dugout",
             "depot", "storage", "magazine", "cache", "armory", "warehouse",
-            "subterranean", "tunnel", "cave", "vault", "casemate"
+            "subterranean", "tunnel", "cave", "vault", "casemate",
+            // FDC 指挥所(2026-08-16 用户实测): 至少本关 FDC 全在地下, HE 打不穿必须 AP——
+            // FDC 本体不免疫 HE, 但地下掩体按"地下必须 AP"规则处理(与 2★ 仓库同规则)。
+            "fire direction"
         })
             if (low.Contains(key)) return true;
         foreach (var key in new[] { "underground", "bunker", "bombproof", "subterranean" })
@@ -400,14 +409,27 @@ public class TacticalRadar
     }
 
     // ─── 坐标计算（世界坐标 → 地图坐标系）───
+    // 基准用真实炮塔 TurretLocation(转移阵地时游戏直接移动它, 实时位置即新基准),
+    // 不用 Player Turret Piece(可拖动标记, 转移后 5s 内未归位 → 角度/距离全错 → 打空)。
+    // mapSurface 缓存(Scan 时刷新一次), 不做每次 Find——2026-08-15 性能修复。
+
+    private Transform? _radarMapSurface;
+
+    private void EnsureRadarMapSurface()
+    {
+        if (_radarMapSurface == null)
+            _radarMapSurface = GameObject.Find("Draggable Surface")?.transform;
+    }
+
+    private Transform? AimTurretBase => fcs.MapTable.TurretLocation ?? fcs.MapTable.Turret;
 
     private float CalcAngle(Vector3 worldPos)
     {
-        var mapSurface = GameObject.Find("Draggable Surface")?.transform;
-        var turret = fcs.MapTable.Turret;
-        if (mapSurface == null || turret == null) return 0f;
-        var localPos = mapSurface.InverseTransformPoint(worldPos);
-        var target = localPos - turret.localPosition;
+        EnsureRadarMapSurface();
+        var turret = AimTurretBase;
+        if (_radarMapSurface == null || turret == null) return 0f;
+        var turretLocal = _radarMapSurface.InverseTransformPoint(turret.position);
+        var target = _radarMapSurface.InverseTransformPoint(worldPos) - turretLocal;
         var angle = Vector3.SignedAngle(target, Vector3.up, Vector3.forward);
         if (angle < 0) angle += 360;
         return angle;
@@ -415,11 +437,11 @@ public class TacticalRadar
 
     private float CalcDistance(Vector3 worldPos)
     {
-        var mapSurface = GameObject.Find("Draggable Surface")?.transform;
-        var turret = fcs.MapTable.Turret;
-        if (mapSurface == null || turret == null) return 0f;
-        var localPos = mapSurface.InverseTransformPoint(worldPos);
-        var target = localPos - turret.localPosition;
+        EnsureRadarMapSurface();
+        var turret = AimTurretBase;
+        if (_radarMapSurface == null || turret == null) return 0f;
+        var turretLocal = _radarMapSurface.InverseTransformPoint(turret.position);
+        var target = _radarMapSurface.InverseTransformPoint(worldPos) - turretLocal;
         return target.magnitude * 3.8164f;
     }
 }
