@@ -35,8 +35,10 @@ public class MapOverlay
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
-    private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
-    private const float PerpLabelOffset = 0.12f;   // 火力线标签离线垂直偏移(左右炮镜像, 防双线标签重合)
+    private const float LabelOffset = 0.075f;      // 圈标签右上偏移(自适应前 0.15 再砍半, 引导线跟随)
+    private const float PerpLabelOffset = 0.06f;   // 火力线标签离线垂直偏移(砍半, 左右炮镜像)
+    private const float SpeedLabelOffsetY = 0.15f; // 速度注记距路径根部偏移(砍半)
+    private const float EdgeMargin = 0.15f;        // 边缘自适应安全边距(标签不出板面)
     private const float ArrowLen = 0.08f;          // 路径箭头基长(按路径长度等比缩放, 尖峰不过大)
     private const float ZGeom = -0.015f;           // 几何层 z(-0.01 被航拍照片层覆盖, -0.02 浮空)
     private const float ZLabel = -0.02f;           // 标签层 z(比几何层略高, 压线可读)
@@ -50,6 +52,7 @@ public class MapOverlay
 
     private readonly FSC fcs;
     private Transform? mapSurface;
+    private Vector2 boardHalf = new(3.0f, 1.35f);  // 板面半宽/半高(从 Draggable Surface 的 BoxCollider 读, 回退值)
     private readonly List<GameObject> tracked = new();
     private readonly Dictionary<ArtilleryTask, Slot> slots = new();
     private float lastTick;
@@ -62,7 +65,15 @@ public class MapOverlay
         if (Time.time - lastTick < TickInterval) return;
         lastTick = Time.time;
         // 场景可能尚未就绪, 每次空引用时重找
-        if (mapSurface == null) mapSurface = GameObject.Find("Draggable Surface")?.transform;
+        if (mapSurface == null)
+        {
+            mapSurface = GameObject.Find("Draggable Surface")?.transform;
+            if (mapSurface != null)
+            {
+                var bc = mapSurface.GetComponent<BoxCollider>();
+                if (bc != null) boardHalf = new Vector2(bc.size.x * 0.5f, bc.size.y * 0.5f);
+            }
+        }
         if (mapSurface == null || fcs.MapTable.Turret == null) return;
 
         var active = new List<ArtilleryTask>(3);
@@ -118,6 +129,7 @@ public class MapOverlay
         public int barrel;                               // 0=左炮 1=右炮(标签镜像方向用; 在飞任务沿用创建时标记)
         public Vector3 lastImpact = new(float.MinValue, float.MinValue, float.MinValue); // 上次落点(几何仅变化时更新)
         public Vector3? frozenImpact;                    // 击发瞬间锁存的落点(在飞期火力线/弹着点固定)
+        public Vector3 labelOff;                         // 上次使用的标签偏移(边缘自适应变化时更新引导线)
 
         public Slot(Transform mapSurface)
         {
@@ -197,12 +209,23 @@ public class MapOverlay
         }
         }   // impactChanged 块结束(落点未变则不再触碰静态几何)
 
-        // 圈标签: 手写注记式倒计时(炮兵秒符号 "); 左炮右上/右炮左上镜像, 引导线跟随
+        // 圈标签: 手写注记式倒计时(炮兵秒符号 "); 左炮右上/右炮左上镜像; 边缘自适应翻转(出框侧反折)
         int secs = t.Fired
             ? Mathf.Max(0, (int)(t.EstimatedToF - (Time.time - t.FiredAt)))
             : (int)t.EstimatedToF;
         string labelText = secs + "\"";
-        Vector3 labelOff = new Vector3(s.barrel == 0 ? LabelOffset : -LabelOffset, LabelOffset, ZLabel - ZGeom);
+        Vector3 labelOff = AdaptiveLabelOff(s, impactMap);
+        if (labelOff != s.labelOff)
+        {
+            s.labelOff = labelOff;
+            if (s.labelRoot != null) s.labelRoot.transform.localPosition = labelOff;
+            if (s.leader != null)
+            {
+                s.leader.transform.localPosition = labelOff;
+                var ll = s.leader.GetComponent<Il2CppShapes.Line>();
+                SetLine(ll, Vector3.zero, -new Vector3(labelOff.x, labelOff.y, 0f));
+            }
+        }
         if (labelText != s.labelText)
         {
             s.labelText = labelText;
@@ -302,7 +325,10 @@ public class MapOverlay
                 if (s.speedRoot != null)
                 {
                     if (!s.speedRoot.activeSelf) s.speedRoot.SetActive(true);
-                    s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + 0.3f, ZLabel);
+                    // 速度注记在路径根部上方; 近顶边时翻到下方, 不出板面
+                    float sy = now.y + SpeedLabelOffsetY > boardHalf.y - EdgeMargin
+                        ? -SpeedLabelOffsetY : SpeedLabelOffsetY;
+                    s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + sy, ZLabel);
                 }
             }
             else
@@ -328,6 +354,18 @@ public class MapOverlay
             impactWorld = TargetLeadSolver.LeadPoint(t.AimP0, t.AimVel, Time.time - t.AimStartTime, tof);
         }
         return fcs.MapTable.WorldToMapLocal(impactWorld);
+    }
+
+    /// <summary>倒计时标签偏移: 默认左炮右上/右炮左上; 目标靠板边时向内侧/下方反折, 引导线不出框。</summary>
+    private Vector3 AdaptiveLabelOff(Slot s, Vector3 impactMap)
+    {
+        float offX = s.barrel == 0 ? LabelOffset : -LabelOffset;
+        float offY = LabelOffset;
+        if (impactMap.y + offY > boardHalf.y - EdgeMargin) offY = -LabelOffset;
+        else if (impactMap.y + offY < -boardHalf.y + EdgeMargin) offY = LabelOffset;
+        if (impactMap.x + offX > boardHalf.x - EdgeMargin) offX = -LabelOffset;
+        else if (impactMap.x + offX < -boardHalf.x + EdgeMargin) offX = LabelOffset;
+        return new Vector3(offX, offY, ZLabel - ZGeom);
     }
 
     private void EnsureRing(Slot s)
