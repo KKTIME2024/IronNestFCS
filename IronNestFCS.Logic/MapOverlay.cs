@@ -25,12 +25,14 @@ public class MapOverlay
     private const float KmPerMapUnit = 3.8164f;    // map-local × 3.8164 = km (与 FSC.DistKm 同)
     private const int RingSegments = 24;
     private const float RingThickness = 0.01f;     // 圈描边宽(板面单位)
-    private const float FireThickness = 0.012f;    // 火力线宽(主线元素, 视觉模型建议加粗)
+    private const float FireThickness = 0.010f;    // 火力线宽(手绘墨线, 不过分粗)
     private const float LineThickness = 0.008f;    // 路径宽
     private const float LeaderThickness = 0.005f;  // 引导线宽(虚线, 比主线弱一档)
-    private const float TickThickness = 0.008f;    // 圈刻度线宽
-    private const float TickGap = 0.015f;          // 刻度与圈环的间距
-    private const float TickLen = 0.05f;           // 圈刻度长(准星短线)
+    private const float RulerStep = 0.3f;          // 火线上量距刻度间距(板面单位)
+    private const float RulerHalfLen = 0.02f;      // 量距刻度半长(垂直线)
+    private const float RulerTickThickness = 0.004f; // 量距刻度宽(极细)
+    private const float CenterHalf = 0.03f;        // 圆心罗盘点小十字半长
+    private const float CenterThickness = 0.006f;  // 罗盘点十字宽
     private const float CharThickness = 0.010f;    // 字符段线宽(装机实测: 0.008 太细, 加粗后无需描边)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
@@ -41,11 +43,10 @@ public class MapOverlay
     private const float ZGeom = -0.005f;           // 几何层 z(装机实测: 0.02 太浮空, 压到贴近板面)
     private const float ZLabel = -0.008f;          // 标签层 z(比几何层略高, 压线可读)
 
-    private static readonly Color RingColor = new(0.85f, 0.18f, 0.12f);      // 圈: 亮红(原深红在暗红地图上糊)
-    private static readonly Color FireStartColor = new(0.5f, 0.07f, 0.05f);  // 火力线炮口端: 偏暗
-    private static readonly Color FireEndColor = new(1f, 0.15f, 0.1f);       // 火力线落点端: 亮红(最高对比)
-    private static readonly Color LeaderColor = new(0.75f, 0.1f, 0.08f);     // 引导线(比火线弱一档)
-    private static readonly Color FireLabelColor = new(1f, 0.3f, 0.2f);      // 火力线标签文字(亮红)
+    // 1930 手绘测量风: 统一墨线红家族(均匀色, 无渐变——手绘线不渐变)
+    private static readonly Color InkRed = new(0.62f, 0.1f, 0.08f);          // 红墨线主色(圈/火线/刻度)
+    private static readonly Color LeaderColor = new(0.5f, 0.08f, 0.07f);     // 引导线(略暗)
+    private static readonly Color FireLabelColor = new(0.82f, 0.2f, 0.15f);  // 火力线标签文字(亮一档)
     private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);         // 白(移动路径, 尺规语义)
     private static readonly Color LabelColor = Color.white;
 
@@ -98,8 +99,9 @@ public class MapOverlay
     private sealed class Slot
     {
         public readonly GameObject root;
-        public readonly List<GameObject> ring = new();   // 毁伤圈 24 段
-        public readonly List<GameObject> ticks = new();  // 圈刻度(准星短线) 4 条
+        public readonly List<GameObject> ring = new();   // 毁伤圈 24 段(手绘抖动)
+        public readonly List<GameObject> rulerTicks = new(); // 火线量距刻度(数量随线长重建)
+        public GameObject? centerMark;                   // 圆心罗盘点小十字
         public GameObject? fireLine;                     // 火力线
         public GameObject? leader;                       // 圈标签引线
         public GameObject? labelRoot;                    // 圈标签(文本变时重建)
@@ -129,7 +131,8 @@ public class MapOverlay
     {
         yield return s.root;
         foreach (var g in s.ring) yield return g;
-        foreach (var g in s.ticks) yield return g;
+        foreach (var g in s.rulerTicks) yield return g;
+        if (s.centerMark != null) yield return s.centerMark;
         if (s.fireLine != null) yield return s.fireLine;
         if (s.leader != null) yield return s.leader;
         if (s.labelRoot != null) yield return s.labelRoot;
@@ -146,7 +149,7 @@ public class MapOverlay
         Vector3 player = fcs.MapTable.GetTurretLocal();
         s.root.transform.localPosition = new Vector3(impactMap.x, impactMap.y, ZGeom);
 
-        // 毁伤圈: 24 段多边形, 半径 = 注册表同源 BlastRadiusKm; 上下左右 4 个准星刻度
+        // 毁伤圈: 24 段多边形, 半径 = 注册表同源 BlastRadiusKm; 固定抖动模拟手绘圆(帧间稳定)
         float r = t.BlastRadiusKm / KmPerMapUnit;
         if (r > 0f)
         {
@@ -155,24 +158,19 @@ public class MapOverlay
             {
                 float a0 = i * 2f * Mathf.PI / RingSegments;
                 float a1 = (i + 1) * 2f * Mathf.PI / RingSegments;
+                float r0 = r * (1f + RingJitter[i]);
+                float r1 = r * (1f + RingJitter[(i + 1) % RingSegments]);
                 var l = s.ring[i].GetComponent<Il2CppShapes.Line>();
-                SetLine(l, new Vector3(Mathf.Cos(a0) * r, Mathf.Sin(a0) * r, 0f),
-                           new Vector3(Mathf.Cos(a1) * r, Mathf.Sin(a1) * r, 0f));
-            }
-            for (int i = 0; i < 4; i++)
-            {
-                float a = i * Mathf.PI / 2f;
-                var dirv = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f);
-                var tl = s.ticks[i].GetComponent<Il2CppShapes.Line>();
-                SetLine(tl, dirv * (r + TickGap), dirv * (r + TickGap + TickLen));
+                SetLine(l, new Vector3(Mathf.Cos(a0) * r0, Mathf.Sin(a0) * r0, 0f),
+                           new Vector3(Mathf.Cos(a1) * r1, Mathf.Sin(a1) * r1, 0f));
             }
             foreach (var g in s.ring) if (!g.activeSelf) g.SetActive(true);
-            foreach (var g in s.ticks) if (!g.activeSelf) g.SetActive(true);
+            if (s.centerMark != null && !s.centerMark.activeSelf) s.centerMark.SetActive(true);
         }
         else if (s.ring.Count > 0)
         {
             foreach (var g in s.ring) if (g.activeSelf) g.SetActive(false);
-            foreach (var g in s.ticks) if (g.activeSelf) g.SetActive(false);
+            if (s.centerMark != null && s.centerMark.activeSelf) s.centerMark.SetActive(false);
         }
 
         // 圈标签: 只保留倒计时数字(弹种前缀/单位后缀已按实测删减, 面板有完整信息)
@@ -196,24 +194,48 @@ public class MapOverlay
             ll.Dashed = true;   // 引导线虚线: 视觉模型建议与主火线(实线)区分
         }
 
-        // 火力线: 玩家 → 落点(根局部系); 方向性渐变(炮口暗→落点亮), 在飞(已击发)变虚线
+        // 火力线: 玩家 → 落点(根局部系); 均匀墨线红(手绘线不渐变), 在飞(已击发)变虚线
         if (s.fireLine == null)
         {
-            s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", FireEndColor, FireThickness, Vector3.zero);
+            s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", InkRed, FireThickness, Vector3.zero);
             tracked.Add(s.fireLine);
         }
         var fl = s.fireLine.GetComponent<Il2CppShapes.Line>();
         SetLine(fl, player - impactMap, Vector3.zero);
-        fl.ColorStart = FireStartColor;   // 炮口端暗
-        fl.ColorEnd = FireEndColor;       // 落点端亮
-        fl.Dashed = t.Fired;              // 计划实线 / 在飞虚线
+        fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线
+
+        // 手绘测量风: 沿火线等距短刻度(尺规量距感), 数量随线长变化时重建
+        Vector3 fdir = impactMap - player;
+        int needTicks = fdir.magnitude > 0.001f ? (int)(fdir.magnitude / RulerStep) : 0;
+        if (s.rulerTicks.Count != needTicks)
+        {
+            foreach (var g in s.rulerTicks) { tracked.Remove(g); Object.Destroy(g); }
+            s.rulerTicks.Clear();
+            for (int i = 0; i < needTicks; i++)
+            {
+                var g = MakeLine(s.root.transform, "FCS_OverlayRulerTick", InkRed, RulerTickThickness, Vector3.zero);
+                s.rulerTicks.Add(g);
+                tracked.Add(g);
+            }
+        }
+        if (needTicks > 0)
+        {
+            Vector3 fnorm = fdir.normalized;
+            Vector3 fperp = new Vector3(-fnorm.y, fnorm.x, 0f);
+            for (int i = 0; i < needTicks; i++)
+            {
+                Vector3 at = -fdir + fnorm * (RulerStep * (i + 1));   // 从炮口端量起
+                var tl = s.rulerTicks[i].GetComponent<Il2CppShapes.Line>();
+                SetLine(tl, at - fperp * RulerHalfLen, at + fperp * RulerHalfLen);
+            }
+        }
 
         // 火力线标签: 距离/方位角, 线中点, 顺线 + 自动翻转(位置/旋转每 tick 跟, 文本变才重建)
         var dir = impactMap - player;
         float distKm = dir.magnitude * KmPerMapUnit;
         float bearing = Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg;   // 0°=+Y, 顺时针(同 GetMarkTarget 约定)
         if (bearing < 0f) bearing += 360f;
-        string fireLabelText = $"{distKm:F1}KM {bearing:F0}°";
+        string fireLabelText = $"{distKm:F1}km {bearing:F0}°";   // 小写 km: 手绘测量标注习惯
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
@@ -279,15 +301,20 @@ public class MapOverlay
         if (s.ring.Count > 0) return;
         for (int i = 0; i < RingSegments; i++)
         {
-            var g = MakeLine(s.root.transform, "FCS_OverlayRing", RingColor, RingThickness, Vector3.zero);
+            var g = MakeLine(s.root.transform, "FCS_OverlayRing", InkRed, RingThickness, Vector3.zero);
             s.ring.Add(g);
             tracked.Add(g);
         }
-        for (int i = 0; i < 4; i++)
+        // 圆心罗盘点小十字(测绘本命, 手绘十字比 HUD 准星刻度更贴 1930 风格)
+        if (s.centerMark == null)
         {
-            var g = MakeLine(s.root.transform, "FCS_OverlayTick", RingColor, TickThickness, Vector3.zero);
-            s.ticks.Add(g);
-            tracked.Add(g);
+            s.centerMark = new GameObject("FCS_OverlayCenterMark");
+            s.centerMark.transform.SetParent(s.root.transform, false);
+            var h = MakeLine(s.centerMark.transform, "FCS_OverlayCenterSeg", InkRed, CenterThickness, Vector3.zero);
+            var v = MakeLine(s.centerMark.transform, "FCS_OverlayCenterSeg", InkRed, CenterThickness, Vector3.zero);
+            SetLine(h.GetComponent<Il2CppShapes.Line>(), new Vector3(-CenterHalf, 0f, 0f), new Vector3(CenterHalf, 0f, 0f));
+            SetLine(v.GetComponent<Il2CppShapes.Line>(), new Vector3(0f, -CenterHalf, 0f), new Vector3(0f, CenterHalf, 0f));
+            tracked.Add(s.centerMark);
         }
     }
 
@@ -360,16 +387,31 @@ public class MapOverlay
     {
         switch (char.ToUpperInvariant(c))
         {
-            case '0': return Seg7("abcdef");
-            case '1': return Seg7("bc");
-            case '2': return Seg7("abged");
-            case '3': return Seg7("abgcd");
-            case '4': return Seg7("fgbc");
-            case '5': return Seg7("afgcd");
-            case '6': return Seg7("afgedc");
-            case '7': return Seg7("abc");
-            case '8': return Seg7("abcdefg");
-            case '9': return Seg7("abcdfg");
+            // 手写体数字(1930 手绘测量标注: 开放 4、带横杠 7、手绘弧线 2/3/8, 替代七段数码的现代感)
+            case '0': return P((0.28f, 0.1f, 0.18f, 1.5f), (0.18f, 1.5f, 0.72f, 1.5f), (0.72f, 1.5f, 0.8f, 0.12f), (0.8f, 0.12f, 0.28f, 0.1f));
+            case '1': return P((0.32f, 1.42f, 0.5f, 1.6f), (0.5f, 1.6f, 0.5f, 0.12f), (0.32f, 0.2f, 0.65f, 0.1f));
+            case '2': return P((0.18f, 1.32f, 0.38f, 1.55f), (0.38f, 1.55f, 0.62f, 1.55f), (0.62f, 1.55f, 0.78f, 1.3f),
+                (0.78f, 1.3f, 0.68f, 1f), (0.68f, 1f, 0.52f, 0.9f), (0.52f, 0.9f, 0.15f, 0.08f), (0.15f, 0.08f, 0.85f, 0.08f));
+            case '3': return P((0.22f, 1.42f, 0.42f, 1.58f), (0.42f, 1.58f, 0.62f, 1.58f), (0.62f, 1.58f, 0.74f, 1.4f),
+                (0.74f, 1.4f, 0.64f, 1.15f), (0.64f, 1.15f, 0.42f, 1.05f), (0.42f, 1.05f, 0.66f, 0.95f),
+                (0.66f, 0.95f, 0.75f, 0.72f), (0.75f, 0.72f, 0.6f, 0.45f), (0.6f, 0.45f, 0.32f, 0.38f),
+                (0.32f, 0.38f, 0.22f, 0.52f), (0.22f, 0.52f, 0.3f, 0.68f));
+            case '4': return P((0.55f, 1.6f, 0.55f, 0.1f), (0.55f, 0.72f, 0.12f, 0.95f), (0.12f, 0.95f, 0.82f, 0.95f));
+            case '5': return P((0.68f, 1.6f, 0.22f, 1.6f), (0.22f, 1.6f, 0.22f, 1.05f), (0.22f, 1.05f, 0.6f, 0.95f),
+                (0.6f, 0.95f, 0.72f, 0.75f), (0.72f, 0.75f, 0.6f, 0.42f), (0.6f, 0.42f, 0.32f, 0.38f),
+                (0.32f, 0.38f, 0.22f, 0.55f));
+            case '6': return P((0.68f, 1.5f, 0.45f, 1.6f), (0.45f, 1.6f, 0.22f, 1.35f), (0.22f, 1.35f, 0.16f, 0.6f),
+                (0.16f, 0.6f, 0.25f, 0.2f), (0.25f, 0.2f, 0.5f, 0.1f), (0.5f, 0.1f, 0.72f, 0.25f),
+                (0.72f, 0.25f, 0.75f, 0.55f), (0.75f, 0.55f, 0.45f, 0.6f), (0.45f, 0.6f, 0.24f, 0.48f));
+            case '7': return P((0.15f, 1.6f, 0.78f, 1.6f), (0.78f, 1.6f, 0.48f, 0.05f), (0.48f, 0.85f, 0.68f, 0.85f));
+            case '8': return P((0.3f, 1.52f, 0.55f, 1.6f), (0.55f, 1.6f, 0.7f, 1.42f), (0.7f, 1.42f, 0.6f, 1.08f),
+                (0.6f, 1.08f, 0.3f, 1.08f), (0.3f, 1.08f, 0.24f, 1.35f), (0.24f, 1.35f, 0.3f, 1.52f),
+                (0.3f, 0.85f, 0.5f, 0.82f), (0.5f, 0.82f, 0.7f, 0.6f), (0.7f, 0.6f, 0.72f, 0.15f),
+                (0.72f, 0.15f, 0.5f, 0.05f), (0.5f, 0.05f, 0.25f, 0.12f), (0.25f, 0.12f, 0.28f, 0.55f));
+            case '9': return P((0.72f, 0.45f, 0.55f, 0.1f), (0.55f, 0.1f, 0.3f, 0.15f), (0.3f, 0.15f, 0.2f, 0.35f),
+                (0.2f, 0.35f, 0.2f, 0.85f), (0.2f, 0.85f, 0.3f, 1.1f), (0.3f, 1.1f, 0.55f, 1.15f),
+                (0.55f, 1.15f, 0.75f, 0.98f), (0.75f, 0.98f, 0.72f, 0.65f), (0.72f, 0.65f, 0.5f, 0.62f),
+                (0.5f, 0.62f, 0.28f, 0.7f));
             case 'A': return P((0.12f, 0f, 0.5f, 1.6f), (0.88f, 0f, 0.5f, 1.6f), (0.3f, 0.72f, 0.7f, 0.72f));
             case 'B': return P((0.28f, 0f, 0.28f, 1.6f), (0.28f, 1.6f, 0.62f, 1.6f), (0.62f, 1.6f, 0.7f, 1.5f),
                 (0.7f, 1.5f, 0.7f, 1.2f), (0.7f, 1.2f, 0.6f, 1.1f), (0.6f, 1.1f, 0.28f, 1.1f),
@@ -404,7 +446,10 @@ public class MapOverlay
             case 'R': return P((0.28f, 0f, 0.28f, 1.6f), (0.28f, 1.6f, 0.62f, 1.6f), (0.62f, 1.6f, 0.7f, 1.5f),
                 (0.7f, 1.5f, 0.7f, 1.2f), (0.7f, 1.2f, 0.6f, 1.1f), (0.6f, 1.1f, 0.28f, 1.1f), (0.28f, 0.5f, 0.66f, 0.5f),
                 (0.3f, 0.45f, 0.85f, 0f));
-            case 'S': return Seg7("afgcd");
+            case 'S': return P((0.7f, 1.5f, 0.48f, 1.6f), (0.48f, 1.6f, 0.28f, 1.52f), (0.28f, 1.52f, 0.25f, 1.3f),
+                (0.25f, 1.3f, 0.32f, 1.05f), (0.32f, 1.05f, 0.72f, 0.95f), (0.72f, 0.95f, 0.75f, 0.68f),
+                (0.75f, 0.68f, 0.6f, 0.45f), (0.6f, 0.45f, 0.32f, 0.38f), (0.32f, 0.38f, 0.22f, 0.5f),
+                (0.22f, 0.5f, 0.3f, 0.62f));
             case 'T': return P((0.2f, 1.6f, 0.8f, 1.6f), (0.5f, 1.6f, 0.5f, 0f));
             case 'U': return P((0.2f, 1.6f, 0.2f, 0.3f), (0.2f, 0.3f, 0.5f, 0.08f), (0.5f, 0.08f, 0.8f, 0.3f),
                 (0.8f, 0.3f, 0.8f, 1.6f));
@@ -428,26 +473,19 @@ public class MapOverlay
         }
     }
 
-    /// <summary>七段数码段坐标(单位格, 与 renchonghan 一致)。</summary>
-    private static (Vector2, Vector2)[] Seg7(string keys)
+    /// <summary>手绘圆抖动表: 固定伪随机序列, 帧间稳定(不闪烁), 半径 ±5% 的不完美感。</summary>
+    private static readonly float[] RingJitter = BuildJitter(RingSegments, 0.05f);
+
+    private static float[] BuildJitter(int n, float amp)
     {
-        var list = new List<(Vector2, Vector2)>(keys.Length);
-        foreach (char k in keys)
+        var r = new float[n];
+        uint s = 0x9E3779B9u;
+        for (int i = 0; i < n; i++)
         {
-            (Vector2 a, Vector2 b) = k switch
-            {
-                'a' => (new Vector2(0.05f, 1.6f), new Vector2(0.95f, 1.6f)),
-                'b' => (new Vector2(0.95f, 1.6f), new Vector2(0.95f, 0.8f)),
-                'c' => (new Vector2(0.95f, 0.8f), new Vector2(0.95f, 0f)),
-                'd' => (new Vector2(0.05f, 0f), new Vector2(0.95f, 0f)),
-                'e' => (new Vector2(0.05f, 0f), new Vector2(0.05f, 0.8f)),
-                'f' => (new Vector2(0.05f, 1.6f), new Vector2(0.05f, 0.8f)),
-                'g' => (new Vector2(0.05f, 0.8f), new Vector2(0.95f, 0.8f)),
-                _ => (Vector2.zero, Vector2.zero),
-            };
-            list.Add((a, b));
+            s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+            r[i] = (s / (float)uint.MaxValue * 2f - 1f) * amp;
         }
-        return list.ToArray();
+        return r;
     }
 
     /// <summary>浮点笔画 → 线段数组。</summary>
