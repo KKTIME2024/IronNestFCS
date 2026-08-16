@@ -36,6 +36,7 @@ public class MapOverlay
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
     private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
+    private const float PerpLabelOffset = 0.12f;   // 火力线标签离线垂直偏移(左右炮镜像, 防双线标签重合)
     private const float PathLengthKm = 1.5f;       // 移动路径固定可见长度(km)
     private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
     private const float ZGeom = -0.015f;           // 几何层 z(-0.01 被航拍照片层覆盖, -0.02 浮空)
@@ -73,7 +74,12 @@ public class MapOverlay
 
         foreach (var t in active)
         {
-            if (!slots.TryGetValue(t, out var slot)) { slot = new Slot(mapSurface); slots[t] = slot; }
+            if (!slots.TryGetValue(t, out var slot))
+            {
+                slot = new Slot(mapSurface);
+                slot.barrel = ReferenceEquals(t, fcs.RightTask) ? 1 : 0;   // 左炮标签右上 / 右炮镜像左上
+                slots[t] = slot;
+            }
             UpdateSlot(slot, t);
         }
 
@@ -106,6 +112,7 @@ public class MapOverlay
         public GameObject? pathRoot;                     // 移动路径(虚线+箭头, 挂板面绝对位)
         public string labelText = "";                    // 上次渲染文本, 仅变时重建
         public string fireLabelText = "";
+        public int barrel;                               // 0=左炮 1=右炮(标签镜像方向用; 在飞任务沿用创建时标记)
 
         public Slot(Transform mapSurface)
         {
@@ -167,25 +174,24 @@ public class MapOverlay
             if (s.centerMark != null && s.centerMark.activeSelf) s.centerMark.SetActive(false);
         }
 
-        // 圈标签: 手写注记式倒计时(炮兵秒符号 "), 面板有完整信息
+        // 圈标签: 手写注记式倒计时(炮兵秒符号 "); 左炮右上/右炮左上镜像, 引导线跟随
         int secs = t.Fired
             ? Mathf.Max(0, (int)(t.EstimatedToF - (Time.time - t.FiredAt)))
             : (int)t.EstimatedToF;
         string labelText = secs + "\"";
+        Vector3 labelOff = new Vector3(s.barrel == 0 ? LabelOffset : -LabelOffset, LabelOffset, ZLabel - ZGeom);
         if (labelText != s.labelText)
         {
             s.labelText = labelText;
-            RebuildText(s, ref s.labelRoot, labelText, LabelColor, s.root.transform,
-                new Vector3(LabelOffset, LabelOffset, ZLabel - ZGeom));
+            RebuildText(s, ref s.labelRoot, labelText, LabelColor, s.root.transform, labelOff);
             if (s.leader == null)
             {
-                s.leader = MakeLine(s.root.transform, "FCS_OverlayLeader", LeaderColor, LeaderThickness,
-                    new Vector3(LabelOffset, LabelOffset, ZLabel - ZGeom));
+                s.leader = MakeLine(s.root.transform, "FCS_OverlayLeader", LeaderColor, LeaderThickness, labelOff);
                 tracked.Add(s.leader);
             }
             var ll = s.leader.GetComponent<Il2CppShapes.Line>();
-            SetLine(ll, Vector3.zero, -new Vector3(LabelOffset, LabelOffset, 0f));
-            ll.Dashed = true;   // 引导线虚线: 视觉模型建议与主火线(实线)区分
+            SetLine(ll, Vector3.zero, -new Vector3(labelOff.x, labelOff.y, 0f));
+            ll.Dashed = true;   // 引导线虚线: 与主火线(实线)区分
         }
 
         // 火力线: 玩家 → 落点(根局部系); 均匀墨线红, 在飞(已击发)变虚线
@@ -198,17 +204,23 @@ public class MapOverlay
         SetLine(fl, player - impactMap, Vector3.zero);
         fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线
 
-        // 火力线标签: 距离/方位角, 线中点, 顺线 + 自动翻转(位置/旋转每 tick 跟, 文本变才重建)
+        // 火力线标签: 距离/方位角; 线中点垂直线偏移(左炮线左/右炮线右, 防双线标签重合), 顺线旋转+自动翻转
         var dir = impactMap - player;
         float distKm = dir.magnitude * KmPerMapUnit;
         float bearing = Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg;   // 0°=+Y, 顺时针(同 GetMarkTarget 约定)
         if (bearing < 0f) bearing += 360f;
         string fireLabelText = $"{distKm:F1}km {bearing:F0}°";   // 小写 km: 手绘测量标注习惯
+        Vector3 fireLabelPos = (player - impactMap) * 0.5f;
+        if (dir.magnitude > 0.001f)
+        {
+            Vector3 perp = new Vector3(-dir.y, dir.x, 0f).normalized * PerpLabelOffset
+                * (s.barrel == 0 ? 1f : -1f);
+            fireLabelPos += perp;
+        }
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
-            RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform,
-                (player - impactMap) * 0.5f);
+            RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform, fireLabelPos);
         }
         if (s.fireLabelRoot != null)
         {
