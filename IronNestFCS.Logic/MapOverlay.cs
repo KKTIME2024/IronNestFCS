@@ -25,8 +25,12 @@ public class MapOverlay
     private const float KmPerMapUnit = 3.8164f;    // map-local × 3.8164 = km (与 FSC.DistKm 同)
     private const int RingSegments = 24;
     private const float RingThickness = 0.01f;     // 圈描边宽(板面单位)
-    private const float LineThickness = 0.008f;    // 火力线/路径宽
-    private const float LeaderThickness = 0.005f;  // 引线宽(比主线细)
+    private const float FireThickness = 0.012f;    // 火力线宽(主线元素, 视觉模型建议加粗)
+    private const float LineThickness = 0.008f;    // 路径宽
+    private const float LeaderThickness = 0.005f;  // 引导线宽(虚线, 比主线弱一档)
+    private const float TickThickness = 0.008f;    // 圈刻度线宽
+    private const float TickGap = 0.015f;          // 刻度与圈环的间距
+    private const float TickLen = 0.05f;           // 圈刻度长(准星短线)
     private const float CharThickness = 0.010f;    // 字符段线宽(装机实测: 0.008 太细, 加粗后无需描边)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
@@ -37,9 +41,12 @@ public class MapOverlay
     private const float ZGeom = -0.005f;           // 几何层 z(装机实测: 0.02 太浮空, 压到贴近板面)
     private const float ZLabel = -0.008f;          // 标签层 z(比几何层略高, 压线可读)
 
-    private static readonly Color RingColor = new(0.75f, 0.15f, 0.15f);   // 深红偏亮(毁伤圈)
-    private static readonly Color LineColor = new(0.55f, 0.05f, 0.05f);   // 深红(火力线, 同游戏语义)
-    private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);      // 白(移动路径, 尺规语义)
+    private static readonly Color RingColor = new(0.85f, 0.18f, 0.12f);      // 圈: 亮红(原深红在暗红地图上糊)
+    private static readonly Color FireStartColor = new(0.5f, 0.07f, 0.05f);  // 火力线炮口端: 偏暗
+    private static readonly Color FireEndColor = new(1f, 0.15f, 0.1f);       // 火力线落点端: 亮红(最高对比)
+    private static readonly Color LeaderColor = new(0.75f, 0.1f, 0.08f);     // 引导线(比火线弱一档)
+    private static readonly Color FireLabelColor = new(1f, 0.3f, 0.2f);      // 火力线标签文字(亮红)
+    private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);         // 白(移动路径, 尺规语义)
     private static readonly Color LabelColor = Color.white;
 
     private readonly FSC fcs;
@@ -92,6 +99,7 @@ public class MapOverlay
     {
         public readonly GameObject root;
         public readonly List<GameObject> ring = new();   // 毁伤圈 24 段
+        public readonly List<GameObject> ticks = new();  // 圈刻度(准星短线) 4 条
         public GameObject? fireLine;                     // 火力线
         public GameObject? leader;                       // 圈标签引线
         public GameObject? labelRoot;                    // 圈标签(文本变时重建)
@@ -121,6 +129,7 @@ public class MapOverlay
     {
         yield return s.root;
         foreach (var g in s.ring) yield return g;
+        foreach (var g in s.ticks) yield return g;
         if (s.fireLine != null) yield return s.fireLine;
         if (s.leader != null) yield return s.leader;
         if (s.labelRoot != null) yield return s.labelRoot;
@@ -137,7 +146,7 @@ public class MapOverlay
         Vector3 player = fcs.MapTable.GetTurretLocal();
         s.root.transform.localPosition = new Vector3(impactMap.x, impactMap.y, ZGeom);
 
-        // 毁伤圈: 24 段多边形, 半径 = 注册表同源 BlastRadiusKm
+        // 毁伤圈: 24 段多边形, 半径 = 注册表同源 BlastRadiusKm; 上下左右 4 个准星刻度
         float r = t.BlastRadiusKm / KmPerMapUnit;
         if (r > 0f)
         {
@@ -150,11 +159,20 @@ public class MapOverlay
                 SetLine(l, new Vector3(Mathf.Cos(a0) * r, Mathf.Sin(a0) * r, 0f),
                            new Vector3(Mathf.Cos(a1) * r, Mathf.Sin(a1) * r, 0f));
             }
+            for (int i = 0; i < 4; i++)
+            {
+                float a = i * Mathf.PI / 2f;
+                var dirv = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f);
+                var tl = s.ticks[i].GetComponent<Il2CppShapes.Line>();
+                SetLine(tl, dirv * (r + TickGap), dirv * (r + TickGap + TickLen));
+            }
             foreach (var g in s.ring) if (!g.activeSelf) g.SetActive(true);
+            foreach (var g in s.ticks) if (!g.activeSelf) g.SetActive(true);
         }
         else if (s.ring.Count > 0)
         {
             foreach (var g in s.ring) if (g.activeSelf) g.SetActive(false);
+            foreach (var g in s.ticks) if (g.activeSelf) g.SetActive(false);
         }
 
         // 圈标签: 只保留倒计时数字(弹种前缀/单位后缀已按实测删减, 面板有完整信息)
@@ -169,22 +187,26 @@ public class MapOverlay
                 new Vector3(LabelOffset, LabelOffset, ZLabel - ZGeom));
             if (s.leader == null)
             {
-                s.leader = MakeLine(s.root.transform, "FCS_OverlayLeader", LineColor, LeaderThickness,
+                s.leader = MakeLine(s.root.transform, "FCS_OverlayLeader", LeaderColor, LeaderThickness,
                     new Vector3(LabelOffset, LabelOffset, ZLabel - ZGeom));
                 tracked.Add(s.leader);
             }
             var ll = s.leader.GetComponent<Il2CppShapes.Line>();
             SetLine(ll, Vector3.zero, -new Vector3(LabelOffset, LabelOffset, 0f));
+            ll.Dashed = true;   // 引导线虚线: 视觉模型建议与主火线(实线)区分
         }
 
-        // 火力线: 玩家 → 落点(根局部系)
+        // 火力线: 玩家 → 落点(根局部系); 方向性渐变(炮口暗→落点亮), 在飞(已击发)变虚线
         if (s.fireLine == null)
         {
-            s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", LineColor, LineThickness, Vector3.zero);
+            s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", FireEndColor, FireThickness, Vector3.zero);
             tracked.Add(s.fireLine);
         }
         var fl = s.fireLine.GetComponent<Il2CppShapes.Line>();
         SetLine(fl, player - impactMap, Vector3.zero);
+        fl.ColorStart = FireStartColor;   // 炮口端暗
+        fl.ColorEnd = FireEndColor;       // 落点端亮
+        fl.Dashed = t.Fired;              // 计划实线 / 在飞虚线
 
         // 火力线标签: 距离/方位角, 线中点, 顺线 + 自动翻转(位置/旋转每 tick 跟, 文本变才重建)
         var dir = impactMap - player;
@@ -195,7 +217,7 @@ public class MapOverlay
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
-            RebuildText(s, ref s.fireLabelRoot, fireLabelText, LineColor, s.root.transform,
+            RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform,
                 (player - impactMap) * 0.5f);
         }
         if (s.fireLabelRoot != null)
@@ -259,6 +281,12 @@ public class MapOverlay
         {
             var g = MakeLine(s.root.transform, "FCS_OverlayRing", RingColor, RingThickness, Vector3.zero);
             s.ring.Add(g);
+            tracked.Add(g);
+        }
+        for (int i = 0; i < 4; i++)
+        {
+            var g = MakeLine(s.root.transform, "FCS_OverlayTick", RingColor, TickThickness, Vector3.zero);
+            s.ticks.Add(g);
             tracked.Add(g);
         }
     }
