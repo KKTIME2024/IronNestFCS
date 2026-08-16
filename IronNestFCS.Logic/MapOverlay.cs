@@ -23,14 +23,14 @@ public class MapOverlay
     // ==== 调参(装机实测后再校) ====
     private const float TickInterval = 1f;
     private const float KmPerMapUnit = 3.8164f;    // map-local × 3.8164 = km (与 FSC.DistKm 同)
-    private const int RingSegments = 24;
+    private const int RingSegments = 16;           // 圈段数(性能: 24→16, 每任务省 8 渲染对象)
     private const float RingThickness = 0.005f;    // 圈描边宽(全部线宽砍半后)
     private const float FireThickness = 0.005f;    // 火力线宽(砍半)
     private const float LineThickness = 0.004f;    // 路径宽(砍半)
     private const float LeaderThickness = 0.003f;  // 引导线宽(0.005/2=0.0025 低于可渲染下限 0.003)
     private const float CenterHalf = 0.03f;        // 圆心罗盘点小十字半长
     private const float CenterThickness = 0.003f;  // 罗盘点十字宽(砍半)
-    private const int OverlayQueue = 3500;         // 绘制队列: 高于照片/地图不透明层(2000), 深度并列时线段后画胜出
+    private const int OverlayQueue = 2500;         // 绘制队列: 照片层(2000)之后、仍在不透明通道(省透明混合+可合批)
     private const float CharThickness = 0.005f;    // 字符段线宽(砍半)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
@@ -88,10 +88,11 @@ public class MapOverlay
         foreach (var t in stale) { DestroySlot(slots[t]); slots.Remove(t); }
     }
 
-    /// <summary>热重载/卸载: 销毁全部渲染对象。</summary>
+    /// <summary>热重载/卸载: 销毁全部渲染对象与共享材质。</summary>
     public void Shutdown()
     {
         foreach (var go in tracked) { if (go != null) Object.Destroy(go); }
+        if (overlayMat != null) { Object.Destroy(overlayMat); overlayMat = null; }
         tracked.Clear();
         slots.Clear();
     }
@@ -374,6 +375,9 @@ public class MapOverlay
 
     // ==== 渲染对象工厂 ====
 
+    /// <summary>共享线段材质: 所有 overlay 线段共用一个克隆实例(原实现每线一个材质实例, 材质切换 ~200 次/帧)。</summary>
+    private static Material? overlayMat;
+
     private static GameObject MakeLine(Transform parent, string name, Color color, float thickness, Vector3 localPos)
     {
         var go = new GameObject(name);
@@ -384,10 +388,16 @@ public class MapOverlay
         l.Color = color;
         l.ColorStart = color;
         l.ColorEnd = color;
-        // 后绘制: 高 renderQueue 保证线段盖过地图照片层(斜视角边缘深度并列时不再被照片遮挡)
         var rend = go.GetComponent<Renderer>();
-        if (rend != null && rend.material != null)
-            rend.material.renderQueue = OverlayQueue;
+        if (rend != null)
+        {
+            if (overlayMat == null)
+            {
+                overlayMat = rend.material;   // 首次克隆游戏线段材质
+                if (overlayMat != null) overlayMat.renderQueue = OverlayQueue;   // 统一队列, 只设一次
+            }
+            if (overlayMat != null) rend.material = overlayMat;   // 全部共享同一实例
+        }
         return go;
     }
 
