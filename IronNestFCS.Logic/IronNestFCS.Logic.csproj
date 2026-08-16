@@ -80,6 +80,11 @@
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.ImageConversionModule.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- 地图 overlay: 游戏自带线段渲染组件(沙盘箭头/菱形同款), 运行时 TMP/CreatePrimitive 均不可用 -->
+        <Reference Include="Il2CppShapesRuntime">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppShapesRuntime.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
     </ItemGroup>
 
 </Project>

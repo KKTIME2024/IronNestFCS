@@ -1,4 +1,4 @@
-﻿using Il2Cpp;
+using Il2Cpp;
 using MelonLoader;
 using UnityEngine;
 
@@ -66,6 +66,12 @@ public class MapTable {
         if (turretLocation != null && mapSurface != null)
             return mapSurface.InverseTransformPoint(turretLocation.position);
         return turret != null ? turret.localPosition : Vector3.zero;
+    }
+
+    /// <summary>世界坐标 → 地图局部坐标(overlay 渲染用)。地图静态, 直接 InverseTransformPoint。</summary>
+    public Vector3 WorldToMapLocal(Vector3 worldPos) {
+        if (mapSurface == null) return worldPos;
+        return mapSurface.InverseTransformPoint(worldPos);
     }
 
     public ArtilleryTask? GetMarkTarget(int index) {
