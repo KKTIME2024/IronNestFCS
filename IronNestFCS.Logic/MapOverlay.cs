@@ -30,6 +30,7 @@ public class MapOverlay
     private const float LeaderThickness = 0.005f;  // 引导线宽(虚线, 比主线弱一档)
     private const float CenterHalf = 0.03f;        // 圆心罗盘点小十字半长
     private const float CenterThickness = 0.006f;  // 罗盘点十字宽
+    private const int OverlayQueue = 3500;         // 绘制队列: 高于照片/地图不透明层(2000), 深度并列时线段后画胜出
     private const float CharThickness = 0.010f;    // 字符段线宽(装机实测: 0.008 太细, 加粗后无需描边)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
@@ -337,6 +338,10 @@ public class MapOverlay
         l.Color = color;
         l.ColorStart = color;
         l.ColorEnd = color;
+        // 后绘制: 高 renderQueue 保证线段盖过地图照片层(斜视角边缘深度并列时不再被照片遮挡)
+        var rend = go.GetComponent<Renderer>();
+        if (rend != null && rend.material != null)
+            rend.material.renderQueue = OverlayQueue;
         return go;
     }
 
