@@ -49,6 +49,7 @@ public class MapOverlay
     private static readonly Color FireLabelColor = new(0.82f, 0.2f, 0.15f);  // 火力线标签文字(亮一档)
     private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);         // 白(移动路径, 尺规语义)
     private static readonly Color LabelColor = Color.white;
+    private static readonly Color QueuedColor = new(0.55f, 0.6f, 0.62f);     // 排队任务铅笔灰(计划态, 活动后转红墨)
 
     private readonly FSC fcs;
     private Transform? mapSurface;
@@ -76,27 +77,40 @@ public class MapOverlay
         }
         if (mapSurface == null || fcs.MapTable.Turret == null) return;
 
-        var active = new List<ArtilleryTask>(3);
+        var active = new List<ArtilleryTask>(8);
         if (fcs.LeftTask != null) active.Add(fcs.LeftTask);
         if (fcs.RightTask != null && !ReferenceEquals(fcs.RightTask, fcs.LeftTask)) active.Add(fcs.RightTask);
         foreach (var t in fcs.InFlight)
-            if (!active.Contains(t)) active.Add(t);
+            if (!SameTask(active, t)) active.Add(t);
+        // 排队任务也上图(2026-08-17 用户): 待派发任务的圈/标签以铅笔灰呈现, 面板不再重复几何信息
+        foreach (var t in fcs.QueueCan)
+            if (!SameTask(active, t)) active.Add(t);
 
         foreach (var t in active)
         {
             if (!slots.TryGetValue(t, out var slot))
             {
                 slot = new Slot(mapSurface);
-                slot.barrel = ReferenceEquals(t, fcs.RightTask) ? 1 : 0;   // 左炮标签右上 / 右炮镜像左上
                 slots[t] = slot;
             }
+            // 角色变化(排队↔活动↔在飞)时更新排队态与炮位镜像; 在飞任务沿用创建时标记
+            slot.queued = !ReferenceEquals(t, fcs.LeftTask) && !ReferenceEquals(t, fcs.RightTask) && !t.Fired;
+            if (ReferenceEquals(t, fcs.RightTask)) slot.barrel = 1;
+            else if (ReferenceEquals(t, fcs.LeftTask)) slot.barrel = 0;
             UpdateSlot(slot, t);
         }
 
         var stale = new List<ArtilleryTask>();
         foreach (var kv in slots)
-            if (!active.Contains(kv.Key)) stale.Add(kv.Key);
+            if (!SameTask(active, kv.Key)) stale.Add(kv.Key);
         foreach (var t in stale) { DestroySlot(slots[t]); slots.Remove(t); }
+    }
+
+    /// <summary>引用相等判断(ArtilleryTask 未重写 Equals, 避免误判不同任务)。</summary>
+    private static bool SameTask(List<ArtilleryTask> list, ArtilleryTask t)
+    {
+        foreach (var x in list) if (ReferenceEquals(x, t)) return true;
+        return false;
     }
 
     /// <summary>热重载/卸载: 销毁全部渲染对象与共享材质。</summary>
@@ -127,6 +141,8 @@ public class MapOverlay
         public string fireLabelText = "";
         public string speedText = "";
         public int barrel;                               // 0=左炮 1=右炮(标签镜像方向用; 在飞任务沿用创建时标记)
+        public bool queued;                              // 排队态(未派发): 铅笔灰虚线圈+标签, 不画火力线
+        public bool lastQueued;                          // 上次排队态(切换时强制重建标签换色)
         public Vector3 lastImpact = new(float.MinValue, float.MinValue, float.MinValue); // 上次落点(几何仅变化时更新)
         public Vector3? frozenImpact;                    // 击发瞬间锁存的落点(在飞期火力线/弹着点固定)
         public Vector3 labelOff;                         // 上次使用的标签偏移(边缘自适应变化时更新引导线)
@@ -209,6 +225,36 @@ public class MapOverlay
         }
         }   // impactChanged 块结束(落点未变则不再触碰静态几何)
 
+        // 排队态样式(2026-08-17): 铅笔灰虚线圈 = 计划中; 活动/在飞恢复红墨实线
+        if (s.lastQueued != s.queued)
+        {
+            s.lastQueued = s.queued;
+            s.labelText = "";      // 强制重建: 标签颜色随排队/活动态切换
+            s.fireLabelText = "";
+            s.speedText = "";
+        }
+        if (s.ring.Count > 0)
+        {
+            var ringColor = s.queued ? QueuedColor : InkRed;
+            foreach (var g in s.ring)
+            {
+                var l = g.GetComponent<Il2CppShapes.Line>();
+                l.Color = ringColor; l.ColorStart = ringColor; l.ColorEnd = ringColor;
+                l.Dashed = s.queued;
+            }
+            if (s.centerMark != null)
+            {
+                foreach (var cl in s.centerMark.GetComponentsInChildren<Il2CppShapes.Line>(true))
+                { cl.Color = ringColor; cl.ColorStart = ringColor; cl.ColorEnd = ringColor; }
+            }
+        }
+        if (s.leader != null)
+        {
+            var lc = s.queued ? QueuedColor : LeaderColor;
+            var ll = s.leader.GetComponent<Il2CppShapes.Line>();
+            ll.Color = lc; ll.ColorStart = lc; ll.ColorEnd = lc;
+        }
+
         // 圈标签: 手写注记式倒计时(炮兵秒符号 "); 左炮右上/右炮左上镜像; 边缘自适应翻转(出框侧反折)
         int secs = t.Fired
             ? Mathf.Max(0, (int)(t.EstimatedToF - (Time.time - t.FiredAt)))
@@ -229,7 +275,7 @@ public class MapOverlay
         if (labelText != s.labelText)
         {
             s.labelText = labelText;
-            RebuildText(s, ref s.labelRoot, labelText, LabelColor, s.root.transform, labelOff);
+            RebuildText(s, ref s.labelRoot, labelText, s.queued ? QueuedColor : LabelColor, s.root.transform, labelOff);
             if (s.leader == null)
             {
                 s.leader = MakeLine(s.root.transform, "FCS_OverlayLeader", LeaderColor, LeaderThickness, labelOff);
@@ -240,15 +286,22 @@ public class MapOverlay
             ll.Dashed = true;   // 引导线虚线: 与主火线(实线)区分
         }
 
-        // 火力线: 玩家 → 落点(根局部系); 均匀墨线红, 在飞(已击发)变虚线
-        if (s.fireLine == null)
+        // 火力线: 玩家 → 落点(根局部系); 排队任务只给圈/标签不画线(避免多任务线网交叉)
+        if (s.queued)
         {
-            s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", InkRed, FireThickness, Vector3.zero);
-            tracked.Add(s.fireLine);
+            if (s.fireLine != null && s.fireLine.activeSelf) s.fireLine.SetActive(false);
         }
-        var fl = s.fireLine.GetComponent<Il2CppShapes.Line>();
-        fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线(击发翻转可能发生在落点未变的 tick, 单独每 tick 设)
-        if (impactChanged) SetLine(fl, player - impactMap, Vector3.zero);
+        else
+        {
+            if (s.fireLine == null)
+            {
+                s.fireLine = MakeLine(s.root.transform, "FCS_OverlayFireLine", InkRed, FireThickness, Vector3.zero);
+                tracked.Add(s.fireLine);
+            }
+            var fl = s.fireLine.GetComponent<Il2CppShapes.Line>();
+            fl.Dashed = t.Fired;   // 计划实线 / 在飞虚线(击发翻转可能发生在落点未变的 tick, 单独每 tick 设)
+            if (impactChanged) SetLine(fl, player - impactMap, Vector3.zero);
+        }
 
         // 火力线标签: 距离/方位角; 线中点垂直线偏移(左炮线左/右炮线右, 防双线标签重合), 顺线旋转+自动翻转
         var dir = impactMap - player;
@@ -270,15 +323,15 @@ public class MapOverlay
         {
             s.fireLabelText = fireLabelText;
             Vector3 fireLabelPos = (player - impactMap) * 0.5f + firePerp;
-            RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform, fireLabelPos);
+            RebuildText(s, ref s.fireLabelRoot, fireLabelText, s.queued ? QueuedColor : FireLabelColor, s.root.transform, fireLabelPos);
         }
         if (s.fireLabelRoot != null && impactChanged)
         {
             s.fireLabelRoot.transform.localRotation = Quaternion.Euler(0f, 0f, lineAngle);
         }
 
-        // 移动目标: 前进路线 = 当前位置 → 落点(提前点), 白虚线+箭头尖端扎进毁伤圈
-        bool showPath = t.IsMoving && TargetLeadSolver.IsMoving(t.AimVel);
+        // 移动目标: 前进路线 = 当前位置 → 落点(提前点), 白虚线+箭头尖端扎进毁伤圈(排队任务不画路径)
+        bool showPath = !s.queued && t.IsMoving && TargetLeadSolver.IsMoving(t.AimVel);
         if (showPath)
         {
             Vector3 now = fcs.MapTable.WorldToMapLocal(t.AimP0 + t.AimVel * (Time.time - t.AimStartTime));

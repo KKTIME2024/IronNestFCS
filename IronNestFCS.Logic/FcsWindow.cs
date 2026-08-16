@@ -34,11 +34,10 @@ public class FcsWindow
         float lineH = h + 2f;
 
         float extra = 0f;
-        if (fcs.LeftTask != null) extra += lineH * 4;
+        if (fcs.LeftTask != null) extra += lineH * 2;
         else extra += lineH;
-        if (fcs.RightTask != null) extra += lineH * 4;
+        if (fcs.RightTask != null) extra += lineH * 2;
         else extra += lineH;
-        extra += lineH * fcs.InFlight.Count(t => t.progress == Progress.Finished);
         extra += lineH * (fcs.PendingCount + 1);
         extra += 12f;
 
@@ -100,19 +99,9 @@ public class FcsWindow
         foreach (var item in fcs.QueueCan)
         {
             string maxChargeTag = item.useMaxCharge ? " [MAX]" : "";
+            // 方位/距离已由 overlay 排队任务标签(铅笔灰圈+火力线标签)呈现, 面板只留身份与弹种
             GUI.Label(new Rect(x, y, w, h),
-                $"  T{item.targetId}  {ConvertPosition(item.position)}  {item.angel,5:F1}°/{item.distance,5:F2}km  {item.bulletType}{maxChargeTag}");
-            y += lineH;
-        }
-
-        // 已击发、炮弹仍在飞的任务: 倒计时到 0(=射表估计落地)后由 FSC 移出。
-        // progress == Finished 的已离开炮位行, 不重复显示。
-        foreach (var t in fcs.InFlight)
-        {
-            if (t.progress != Progress.Finished) continue;
-            GUI.color = ClrSweep;
-            GUI.Label(new Rect(x, y, w, h), $"  In flight T{t.targetId}  {ImpactText(t)}");
-            GUI.color = oldColor;
+                $"  T{item.targetId}  {item.bulletType}{maxChargeTag}");
             y += lineH;
         }
     }
@@ -144,12 +133,7 @@ public class FcsWindow
         GUI.color = oldColor;
         y += lineH;
 
-        GUI.color = ClrLabel;
-        GUI.Label(new Rect(x + 12f, y, w - 12f, h),
-            $"Target: {task.angel:F1}° / {task.distance:F2}km");
-        GUI.color = oldColor;
-        y += lineH;
-
+        // 目标方位/距离与落地倒计时已由地图 overlay 的火力线标签/毁伤圈标签呈现, 面板不再重复
         string chargeInfo = task.useMaxCharge ? "MAX" : BallisticCalculator.MinimumCharge(task.distance).ToString();
         GUI.color = ClrWarning;
         GUI.Label(new Rect(x + 12f, y, w - 12f, h),
@@ -157,24 +141,7 @@ public class FcsWindow
         GUI.color = oldColor;
         y += lineH;
 
-        GUI.color = ClrWarning;
-        GUI.Label(new Rect(x + 12f, y, w - 12f, h), ImpactText(task));
-        GUI.color = oldColor;
-        y += lineH;
-
         return y;
-    }
-
-    /// <summary>预计落弹: 解算后显示估计值(~Xs); 开火后倒计时到 0(射表估计落地)。</summary>
-    private static string ImpactText(ArtilleryTask t)
-    {
-        if (t.EstimatedToF <= 0f) return "Impact: --";
-        if (t.Fired)
-        {
-            float remaining = Mathf.Max(0f, t.EstimatedToF - (Time.time - t.FiredAt));
-            return $"Impact: {remaining:F0}s";
-        }
-        return $"Impact: ~{t.EstimatedToF:F0}s";
     }
 
     private static void DrawDivider(float x, float y, float w)
@@ -183,15 +150,5 @@ public class FcsWindow
         GUI.color = ClrDiv;
         GUI.Label(new Rect(x, y, w, 1f), "");
         GUI.color = oldColor;
-    }
-
-    public static string ConvertPosition(Vector3 position)
-    {
-        int leterIndex = (int)position.x;
-        string zoneCol = leterIndex >= 0 && leterIndex < 26 ? ((char)('A' + leterIndex)).ToString() : "#";
-        int zoneRow = (int)position.y + 1;
-        int subCol = (int)(position.x * 10) % 10;
-        int subRow = (int)(position.y * 10) % 10;
-        return $"{zoneCol}{zoneRow} {subCol}:{subRow}";
     }
 }
