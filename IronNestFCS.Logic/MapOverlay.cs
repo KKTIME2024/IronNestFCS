@@ -37,7 +37,9 @@ public class MapOverlay
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
     private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
     private const float PerpLabelOffset = 0.12f;   // 火力线标签离线垂直偏移(左右炮镜像, 防双线标签重合)
-    private const float PathLengthKm = 1.5f;       // 移动路径固定可见长度(km)
+    private const float PathTimeS = 5f;             // 移动路径长度 = 速度 × 5s(快目标长/慢目标短)
+    private const float PathLenMinKm = 0.5f;        // 路径长度下限(km)
+    private const float PathLenMaxKm = 3f;          // 路径长度上限(km)
     private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
     private const float ZGeom = -0.015f;           // 几何层 z(-0.01 被航拍照片层覆盖, -0.02 浮空)
     private const float ZLabel = -0.02f;           // 标签层 z(比几何层略高, 压线可读)
@@ -109,9 +111,12 @@ public class MapOverlay
         public GameObject? leader;                       // 圈标签引线
         public GameObject? labelRoot;                    // 圈标签(文本变时重建)
         public GameObject? fireLabelRoot;                // 火力线标签(文本变时重建)
-        public GameObject? pathRoot;                     // 移动路径(虚线+箭头, 挂板面绝对位)
+        public GameObject? pathRoot;                     // 移动路径(虚线+箭头+当前位置十字, 挂板面绝对位)
+        public GameObject? pathCross;                    // 当前位置罗盘点(路径根部)
+        public GameObject? speedRoot;                    // 速度注记(文本变时重建)
         public string labelText = "";                    // 上次渲染文本, 仅变时重建
         public string fireLabelText = "";
+        public string speedText = "";
         public int barrel;                               // 0=左炮 1=右炮(标签镜像方向用; 在飞任务沿用创建时标记)
 
         public Slot(Transform mapSurface)
@@ -141,6 +146,7 @@ public class MapOverlay
         if (s.labelRoot != null) yield return s.labelRoot;
         if (s.fireLabelRoot != null) yield return s.fireLabelRoot;
         if (s.pathRoot != null) yield return s.pathRoot;
+        if (s.speedRoot != null) yield return s.speedRoot;
     }
 
     // ==== 每 tick 更新 ====
@@ -229,13 +235,14 @@ public class MapOverlay
             s.fireLabelRoot.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
         }
 
-        // 移动目标: 前进路线(白虚线+箭头, 板面绝对位) + 根部速度标签
+        // 移动目标: 前进路线(白虚线+箭头) + 当前位置罗盘点 + 根部速度注记
         bool showPath = t.IsMoving && TargetLeadSolver.IsMoving(t.AimVel);
         if (showPath)
         {
             Vector3 now = fcs.MapTable.WorldToMapLocal(t.AimP0 + t.AimVel * (Time.time - t.AimStartTime));
             Vector3 pathDir = t.AimVel.normalized;
-            float len = PathLengthKm / KmPerMapUnit;
+            float speedKmS = t.AimVel.magnitude * KmPerMapUnit;
+            float len = Mathf.Clamp(speedKmS * PathTimeS, PathLenMinKm, PathLenMaxKm) / KmPerMapUnit;
             if (s.pathRoot == null)
             {
                 s.pathRoot = new GameObject("FCS_OverlayPath");
@@ -244,6 +251,13 @@ public class MapOverlay
                 dash.GetComponent<Il2CppShapes.Line>().Dashed = true;   // 原生虚线, 无需贴图
                 MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
                 MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
+                // 当前位置罗盘点(与圆心罗盘点同款红墨线小十字): 现在在哪 → 会落到哪
+                s.pathCross = new GameObject("FCS_OverlayPathCross");
+                s.pathCross.transform.SetParent(s.pathRoot.transform, false);
+                var ch = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
+                var cv = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
+                SetLine(ch.GetComponent<Il2CppShapes.Line>(), new Vector3(-CenterHalf, 0f, 0f), new Vector3(CenterHalf, 0f, 0f));
+                SetLine(cv.GetComponent<Il2CppShapes.Line>(), new Vector3(0f, -CenterHalf, 0f), new Vector3(0f, CenterHalf, 0f));
                 tracked.Add(s.pathRoot);
             }
             if (!s.pathRoot.activeSelf) s.pathRoot.SetActive(true);
@@ -256,11 +270,24 @@ public class MapOverlay
             SetLine(dl, Vector3.zero, tip);
             SetLine(ar1, tip, tip - pathDir * ArrowLen + perp * ArrowLen * 0.6f);
             SetLine(ar2, tip, tip - pathDir * ArrowLen - perp * ArrowLen * 0.6f);
-            // 速度标签已按实测删除(文字全部减负, 只留火力线标签+倒计时数字)
+
+            // 速度注记(手写体): 路径根部上方, 文本变才重建
+            string speedText = $"{speedKmS * 3600f:F0}km/h";
+            if (speedText != s.speedText)
+            {
+                s.speedText = speedText;
+                RebuildText(s, ref s.speedRoot, speedText, LabelColor, mapSurface, Vector3.zero);
+            }
+            if (s.speedRoot != null)
+            {
+                if (!s.speedRoot.activeSelf) s.speedRoot.SetActive(true);
+                s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + 0.3f, ZLabel);
+            }
         }
         else
         {
             if (s.pathRoot != null && s.pathRoot.activeSelf) s.pathRoot.SetActive(false);
+            if (s.speedRoot != null && s.speedRoot.activeSelf) s.speedRoot.SetActive(false);
         }
     }
 
