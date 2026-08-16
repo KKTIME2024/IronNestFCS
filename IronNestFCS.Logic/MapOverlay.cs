@@ -33,7 +33,7 @@ public class MapOverlay
     private const float OutlineZOffset = 0.0015f;  // 描边段 z 下沉朝板面, 白色主段盖上面(防同面显灰)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
-    private const float LabelOffset = 0.3f;        // 圈标签右上偏移(板面单位)
+    private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
     private const float PathLengthKm = 1.5f;       // 移动路径固定可见长度(km)
     private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
     private const float ZGeom = -0.005f;           // 几何层 z(装机实测: 0.02 太浮空, 压到贴近板面)
