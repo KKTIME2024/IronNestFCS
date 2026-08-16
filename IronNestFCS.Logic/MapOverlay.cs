@@ -30,7 +30,7 @@ public class MapOverlay
     private const float LeaderThickness = 0.003f;  // 引导线宽(0.005/2=0.0025 低于可渲染下限 0.003)
     private const float CenterHalf = 0.03f;        // 圆心罗盘点小十字半长
     private const float CenterThickness = 0.003f;  // 罗盘点十字宽(砍半)
-    private const int OverlayQueue = 2500;         // 绘制队列: 照片层(2000)之后、仍在不透明通道(省透明混合+可合批)
+    private const int OverlayQueue = 3500;         // 绘制队列: 在照片层之后(部分关卡照片是透明 3000+, 2500 会被其 alpha 盖成半透明)
     private const float CharThickness = 0.005f;    // 字符段线宽(砍半)
     private const float TextScale = 0.5f;          // 文字整体缩放(装机实测: 原字号太喜感, 减半)
     private const float LabelSegW = 0.045f;        // 字符宽(板面单位, 继承 renchonghan)
