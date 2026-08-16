@@ -1,4 +1,4 @@
-﻿using Il2Cpp;
+using Il2Cpp;
 using MelonLoader;
 using UnityEngine;
 
@@ -15,6 +15,11 @@ public class MapTable {
 
     /// <summary>炮塔 Transform 只读访问(供 TacticalRadar 等使用)</summary>
     public Transform? Turret => turret;
+
+    /// <summary>真实炮塔 Transform(TurretLocation, MapRoot 固定子物体)。
+    /// 玩家拖动不移动它, 紧急移动转移阵地时游戏移动它——瞄准基准应用它而非可拖动的
+    /// Player Turret Piece(2026-08-15: Piece 是标记, 转移后 5s 内可能未归位, 用它瞄准会偏)。</summary>
+    public Transform? TurretLocation => turretLocation;
 
     public bool TryBind() {
         artilleries = new Dictionary<int, Transform>();

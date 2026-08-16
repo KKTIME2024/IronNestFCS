@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using Il2Cpp;
 using Il2CppTMPro;
 using IronNestFCS.Logic.FCS;
@@ -224,12 +224,19 @@ public class FcsSceneInteractor {
         return go;
     }
     
-    public static IEnumerator WaitAndClick(LookAtTarget? button) {
+    public static IEnumerator WaitAndClick(LookAtTarget? button, float timeout = 20f) {
         if (button == null) {
             MelonLogger.Error("[FCS] WaitAndClick: button is null");
             yield break;
         }
+        // 超时兜底(2026-08-15): 状态机停在中间(合栓后退壳/按钮不激活)时永久死等 → 卡死任务。
+        // 超时后放弃点击, 由调用方(BulletInChamber 校验/看门狗)兜底重试。
+        var deadline = Time.realtimeSinceStartup + timeout;
         while (button.isActive == false || button.nextAllowedClickTime > Time.realtimeSinceStartup) {
+            if (Time.realtimeSinceStartup > deadline) {
+                MelonLogger.Error($"[FCS] WaitAndClick: 按钮 {button.name} 等待激活超时 {timeout}s, 放弃点击");
+                yield break;
+            }
             yield return new WaitForSeconds(0.1f);
         }
         yield return new WaitForSeconds(0.1f);

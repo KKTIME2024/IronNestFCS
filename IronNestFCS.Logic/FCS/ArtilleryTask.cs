@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace IronNestFCS.Logic.FCS;
 
@@ -41,6 +41,9 @@ public class ArtilleryTask {
     public float FiredAt;
     /// <summary>该任务是否按移动目标处理（创建时由雷达 IsMoving 一次判定；手动任务一律 false）</summary>
     public bool IsMoving;
+    /// <summary>是否 FDC 目标(暂停组合拳): 击发前需保证无旧弹在 FDC 落地之后落地,
+    /// 否则 FDC 触发的暂停被旧弹落地立即解除(2026-08-15 用户提出)。</summary>
+    public bool IsFdc;
     /// <summary>创建时目标速度未建立(刚出现/热重载): 装填期从雷达采纳后置 false, 快照重置</summary>
     public bool VelocityUnknown;
     /// <summary>装填时定格的装药数（覆盖全程预测最远距离, 仰角重算用它）</summary>
