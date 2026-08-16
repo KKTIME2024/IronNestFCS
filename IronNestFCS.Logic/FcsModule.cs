@@ -315,13 +315,13 @@ public class FcsModule : IFcsModule
         else if (kb.numpad4Key.wasPressedThisFrame || (kb.ctrlKey.isPressed && kb.digit4Key.wasPressedThisFrame))
             fcs.FireTarget(4);
 
-        // Numpad 8: CBT 测试档位切换(生产 180/90 → 快速 400/220 → 快速+禁紧急移动)
-        if (kb.numpad8Key.wasPressedThisFrame || (kb.ctrlKey.isPressed && kb.digit8Key.wasPressedThisFrame))
-            fcs.Cbt.CycleTestMode();
+        // Numpad 8: CBT 测试档位切换(2026-08-16 用户: 注释掉, 不再用测试档)
+        // if (kb.numpad8Key.wasPressedThisFrame || (kb.ctrlKey.isPressed && kb.digit8Key.wasPressedThisFrame))
+        //     fcs.Cbt.CycleTestMode();
 
-        // Numpad 9: CBT 扫描探针(临时调试, 定位倒计时字段)
-        if (kb.numpad9Key.wasPressedThisFrame)
-            fcs.CbtScanProbe();
+        // Numpad 9: CBT 扫描探针(2026-08-16 用户: 注释掉, 临时调试已完成)
+        // if (kb.numpad9Key.wasPressedThisFrame)
+        //     fcs.CbtScanProbe();
     }
 
     /// <summary>切换全自动/手动模式。切手动时清空自动队列(正在打的不打断,打完自然停)。</summary>
