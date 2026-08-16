@@ -49,7 +49,7 @@ public class MapOverlay
     private static readonly Color FireLabelColor = new(0.82f, 0.2f, 0.15f);  // 火力线标签文字(亮一档)
     private static readonly Color PathColor = new(0.9f, 0.9f, 0.9f);         // 白(移动路径, 尺规语义)
     private static readonly Color LabelColor = Color.white;
-    private static readonly Color QueuedColor = new(0.55f, 0.6f, 0.62f);     // 排队任务铅笔灰(计划态, 活动后转红墨)
+    private static readonly Color QueuedColor = new(0.27f, 0.42f, 0.55f);   // 排队任务蓝图蓝灰(计划态; 米黄地图照片上可见, 与红墨活动态区分; 灰色完全看不清)
 
     private readonly FSC fcs;
     private Transform? mapSurface;
@@ -240,7 +240,9 @@ public class MapOverlay
             {
                 var l = g.GetComponent<Il2CppShapes.Line>();
                 l.Color = ringColor; l.ColorStart = ringColor; l.ColorEnd = ringColor;
-                l.Dashed = s.queued;
+                // 注意: 不设 Dashed——虚线在短线段(圈每段 ≈0.02 板面单位)上完全不渲染
+                // (2026-08-17 实测: 排队圈虚线字面不可见, 引导线/文字均实线所以可见)。
+                // 计划态只用蓝色区分, 圈保持实线。
             }
             if (s.centerMark != null)
             {
