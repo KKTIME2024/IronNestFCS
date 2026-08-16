@@ -99,9 +99,9 @@ public class FcsWindow
         foreach (var item in fcs.QueueCan)
         {
             string maxChargeTag = item.useMaxCharge ? " [MAX]" : "";
-            // 方位/距离已由 overlay 排队任务标签(铅笔灰圈+火力线标签)呈现, 面板只留身份与弹种
+            // 排队任务不上 overlay 图, 方位/距离仍在面板展示
             GUI.Label(new Rect(x, y, w, h),
-                $"  T{item.targetId}  {item.bulletType}{maxChargeTag}");
+                $"  T{item.targetId}  {item.bulletType}  {item.angel,5:F1}°/{item.distance,5:F2}km{maxChargeTag}");
             y += lineH;
         }
     }
