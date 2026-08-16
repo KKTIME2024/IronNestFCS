@@ -255,24 +255,26 @@ public class MapOverlay
         float distKm = dir.magnitude * KmPerMapUnit;
         float bearing = Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg;   // 0°=+Y, 顺时针(同 GetMarkTarget 约定)
         if (bearing < 0f) bearing += 360f;
+        // 2026-08-17 修复(用户: 左向火力线标签翻到线下且文字镜像): 线指向左半面(超出 ±90°)时
+        // 旋转归一化到(-90,90]保证文字正读——旧判定 (90,270) 漏掉 (-180,-90) 象限(左下向线文字倒置);
+        // 同时翻转垂直线偏移侧, 标签与右向线一致停在线上方, 不再翻到线下。
+        float lineAngle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        bool flipSide = lineAngle > 90f || lineAngle < -90f;
+        if (flipSide) lineAngle += 180f;
+        Vector3 firePerp = dir.magnitude > 0.001f
+            ? new Vector3(-dir.y, dir.x, 0f).normalized * PerpLabelOffset * (s.barrel == 0 ? 1f : -1f)
+            : Vector3.zero;
+        if (flipSide) firePerp = -firePerp;
         string fireLabelText = $"{distKm:F1}km {bearing:F0}°";   // 小写 km: 手绘测量标注习惯
         if (fireLabelText != s.fireLabelText)
         {
             s.fireLabelText = fireLabelText;
-            Vector3 fireLabelPos = (player - impactMap) * 0.5f;
-            if (dir.magnitude > 0.001f)
-            {
-                Vector3 perp = new Vector3(-dir.y, dir.x, 0f).normalized * PerpLabelOffset
-                    * (s.barrel == 0 ? 1f : -1f);
-                fireLabelPos += perp;
-            }
+            Vector3 fireLabelPos = (player - impactMap) * 0.5f + firePerp;
             RebuildText(s, ref s.fireLabelRoot, fireLabelText, FireLabelColor, s.root.transform, fireLabelPos);
         }
         if (s.fireLabelRoot != null && impactChanged)
         {
-            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-            if (angle > 90f && angle < 270f) angle += 180f;   // 自动翻转保证从观看角度正读
-            s.fireLabelRoot.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+            s.fireLabelRoot.transform.localRotation = Quaternion.Euler(0f, 0f, lineAngle);
         }
 
         // 移动目标: 前进路线 = 当前位置 → 落点(提前点), 白虚线+箭头尖端扎进毁伤圈
