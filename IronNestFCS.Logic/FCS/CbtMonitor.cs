@@ -26,7 +26,7 @@ public class CbtMonitor
     // §6 策略参数(实战校准)
     public const float InitialTime = 600f;      // CBT 初始倒计时(实测 total≈600.9)
     public const float UrgentThreshold = 360f;  // 吃紧阈值: 低于此值切满装+火炮最优先(2026-08-16 用户: 180→360 翻倍)
-    public const float CriticalThreshold = 180f; // 危急阈值: 低于此值触发紧急移动(2026-08-16 用户: 90→180 翻倍)
+    public const float CriticalThreshold = 240f; // 危急阈值: 低于此值触发紧急移动(2026-08-16 用户: 180→240)
     public const float EmergencyMoveCost = 65f; // 紧急移动卡价格
     public const float ReserveAfterMove = 25f;  // 移动后重启资金
     public const float FundLine = 90f;          // 应急基金线 = 65 + 25
