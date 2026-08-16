@@ -32,6 +32,18 @@ A deep-fork of [svr2kos2](https://github.com/svr2kos2)'s FCS (tactical radar ins
 - **智能弹种选择**：装甲/工事/弹药库/地下等硬目标自动打 AP，软目标打 HE，尊重目标 `ImmuneShells` 属性避开无效弹种
 - **优先级排序**：6 级目标优先级 — FDC(6) > 火炮(5) > 弹药库/高价值/3★(4) > 装甲/工事/1★(3) > 普通(2) > 其他(1)。同级按综合时间成本排序（距离×2.56 + 角度差×0.30）
 
+#### 地图 overlay v2（v1.5.0+）
+- 打击中任务可视化（1930 手绘地图风格）：任务毁伤圈 + 标签（弹种/倒计时/距离/方位）、火力线、移动目标路径与速度注记
+- 标签边缘自动翻转避让、左右炮镜像防重叠
+
+#### 方向机装填期预转（v1.5.0+）
+- 静态目标从装填期（WaitLoading）开始转炮塔，装填与转向重叠，装填完方位已就位
+
+#### 反炮兵实验模式（无尽反炮兵，v1.5.0 pre-release）
+- 双轨装药 / FDC 扣留与组合拳 / 紧急移动 / 基金纪律（阶段阈值：吃紧 360s / 危急 240s）
+- **实验性质**：存在偶发异常（原因未知，机理尚在排查）；v1.5.1 起从稳定版停用，开发与修复在 `dev` 分支进行
+- 需要体验请使用 v1.5.0 pre-release；普通玩家请用 v1.5.1 稳定版
+
 #### 手动模式
 - Numpad 1-4（或 Ctrl+1-4）对标记目标 T1~T4 手动下达打击任务
 - 面板切换弹种（正式版 20 种）、`Auto Fire` 自动击发、`Max Charge` 满装药（全自动/手动均生效）
@@ -51,10 +63,15 @@ A deep-fork of [svr2kos2](https://github.com/svr2kos2)'s FCS (tactical radar ins
 | `IronNestFCS.Abstractions` | **契约** | 仅含 `IFcsModule` 接口，唯一安全跨 ALC 边界的类型 |
 | `IronNestFCS.Logic` | **火控逻辑** | 所有火控代码：弹道解算、任务调度、炮塔操控、战术决策、UI。装入可回收 ALC，F9 卸载重载 |
 
+### 文档
+
+- [docs/README.md](docs/README.md) — 文档索引（设计/规格/计划/开发日志/发布）
+- 发布说明：`Release/*_release_notes.md`（zip 与说明同在 `Release/` 目录，不入库）
+
 ### 安装（玩家）
 
 1. **MelonLoader**：下载 [MelonLoader.Installer.exe](https://melonwiki.xyz/)，选择游戏 exe 安装（IL2CPP 版）。游戏根目录出现 `MelonLoader/`
-2. **解压 Mod**：从 [Releases](https://github.com/KKTIME2024/IronNestFCS-Automat/releases) 下载 `IronNestFCS-Automat_vX.X.X.zip`，解压到游戏根目录，将 `Mods/`、`UserData/`、`UserLibs/` 三个文件夹与游戏目录合并
+2. **解压 Mod**：从 [Releases](https://github.com/KKTIME2024/IronNestFCS-Automat/releases) 下载 `IronNestFCS-Automat_vX.X.X.zip`（最新稳定版 **v1.5.1**；需要反炮兵实验模式则用 v1.5.0 pre-release），解压到游戏根目录，将 `Mods/`、`UserData/`、`UserLibs/` 三个文件夹与游戏目录合并
 3. **启动验证**：左上角出现 IronNestFCS-Automat 面板即安装成功。若提示 `Dial 未绑定`，按 **F9** 重新绑定；游戏更新后失效则重新解压覆盖
 
 ### 构建（开发者）
@@ -131,6 +148,18 @@ A MelonLoader mod for *Iron Nest: Heavy Turret Simulator*. This is a deep-fork o
 - **Smart shell selection**: AP for armored/fortification/ammo/underground targets, HE for soft targets, always respecting the target's `ImmuneShells` to skip ineffective types
 - **Priority system**: 6 tiers — FDC(6) > artillery(5) > ammo depot/high-value/3★(4) > armored/fortification/1★(3) > normal(2) > other(1); ties broken by combined cost (distance×2.56 + angle delta×0.30)
 
+#### Map Overlay v2 (v1.5.0+)
+- In-engagement task visualization (1930 hand-drawn map style): blast-radius rings + labels (shell/countdown/distance/bearing), fire lines, moving-target paths with speed notes
+- Auto edge-flip label deconfliction, mirrored left/right gun labels
+
+#### Turret Pre-Rotation During Loading (v1.5.0+)
+- Static targets rotate the turret from the loading phase (WaitLoading), so the bearing is settled by the time loading finishes
+
+#### Counter-Battery Experiment (Endless mode, v1.5.0 pre-release)
+- Dual-track powder / FDC hold & combo / emergency move / fund discipline (thresholds: urgent 360s / critical 240s)
+- **Experimental**: occasional anomalies (root cause unknown, under investigation); disabled in stable releases since v1.5.1, developed on the `dev` branch
+- Use v1.5.0 pre-release to try it; regular players should use v1.5.1
+
 #### Manual Mode
 - Numpad 1-4 (or Ctrl+1-4) to manually dispatch strikes against markers T1~T4
 - Switch shell types (all 20 full-release types), toggle `Auto Fire`, and `Max Charge` from the console buttons
@@ -150,10 +179,15 @@ Three projects, host/logic split to serve hot reload:
 | `IronNestFCS.Abstractions` | **Contract** | Contains only the `IFcsModule` interface — the only type safe across ALC boundaries |
 | `IronNestFCS.Logic` | **FCS logic** | All the fire control code: ballistics, scheduling, turret control, tactics, UI. Loaded in a collectible ALC for F9 reload |
 
+### Docs
+
+- [docs/README.md](docs/README.md) — documentation index (design/specs/plans/devlogs/releases)
+- Release notes: `Release/*_release_notes.md` (kept next to the zips, gitignored)
+
 ### Install (Players)
 
 1. **MelonLoader**: download [MelonLoader.Installer.exe](https://melonwiki.xyz/), point it at the game exe (IL2CPP). A `MelonLoader/` folder appears in the game root
-2. **Extract the mod**: download `IronNestFCS-Automat_vX.X.X.zip` from [Releases](https://github.com/KKTIME2024/IronNestFCS-Automat/releases) and extract into the game root, merging the three folders (`Mods/`, `UserData/`, `UserLibs/`)
+2. **Extract the mod**: download `IronNestFCS-Automat_vX.X.X.zip` from [Releases](https://github.com/KKTIME2024/IronNestFCS-Automat/releases) (latest stable: **v1.5.1**; use v1.5.0 pre-release for the counter-battery experiment) and extract into the game root, merging the three folders (`Mods/`, `UserData/`, `UserLibs/`)
 3. **Launch**: the IronNestFCS-Automat panel in the top-left corner means success. If it says `Dial 未绑定`, press **F9** to rebind; re-extract the zip if a game update breaks it
 
 ### Build (Developers)
