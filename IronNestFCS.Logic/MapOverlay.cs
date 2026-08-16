@@ -37,10 +37,7 @@ public class MapOverlay
     private const float LabelSpacing = 1.4f;       // 字符间距 = 字宽 × 系数
     private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
     private const float PerpLabelOffset = 0.12f;   // 火力线标签离线垂直偏移(左右炮镜像, 防双线标签重合)
-    private const float PathTimeS = 5f;             // 移动路径长度 = 速度 × 5s(快目标长/慢目标短)
-    private const float PathLenMinKm = 0.5f;        // 路径长度下限(km)
-    private const float PathLenMaxKm = 3f;          // 路径长度上限(km)
-    private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
+    private const float ArrowLen = 0.08f;          // 路径箭头基长(按路径长度等比缩放, 尖峰不过大)
     private const float ZGeom = -0.015f;           // 几何层 z(-0.01 被航拍照片层覆盖, -0.02 浮空)
     private const float ZLabel = -0.02f;           // 标签层 z(比几何层略高, 压线可读)
 
@@ -235,53 +232,63 @@ public class MapOverlay
             s.fireLabelRoot.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
         }
 
-        // 移动目标: 前进路线(白虚线+箭头) + 当前位置罗盘点 + 根部速度注记
+        // 移动目标: 前进路线 = 当前位置 → 落点(提前点), 白虚线+箭头尖端扎进毁伤圈
         bool showPath = t.IsMoving && TargetLeadSolver.IsMoving(t.AimVel);
         if (showPath)
         {
             Vector3 now = fcs.MapTable.WorldToMapLocal(t.AimP0 + t.AimVel * (Time.time - t.AimStartTime));
-            Vector3 pathDir = t.AimVel.normalized;
-            float speedKmS = t.AimVel.magnitude * KmPerMapUnit;
-            float len = Mathf.Clamp(speedKmS * PathTimeS, PathLenMinKm, PathLenMaxKm) / KmPerMapUnit;
-            if (s.pathRoot == null)
+            Vector3 toImpact = impactMap - now;   // 方向 = 目标运动方向, 长度 = 距离提前点(速度×ToF)
+            float len = toImpact.magnitude;
+            if (len > 0.001f)
             {
-                s.pathRoot = new GameObject("FCS_OverlayPath");
-                s.pathRoot.transform.SetParent(mapSurface, false);
-                var dash = MakeLine(s.pathRoot.transform, "FCS_OverlayPathDash", PathColor, LineThickness, Vector3.zero);
-                dash.GetComponent<Il2CppShapes.Line>().Dashed = true;   // 原生虚线, 无需贴图
-                MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
-                MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
-                // 当前位置罗盘点(与圆心罗盘点同款红墨线小十字): 现在在哪 → 会落到哪
-                s.pathCross = new GameObject("FCS_OverlayPathCross");
-                s.pathCross.transform.SetParent(s.pathRoot.transform, false);
-                var ch = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
-                var cv = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
-                SetLine(ch.GetComponent<Il2CppShapes.Line>(), new Vector3(-CenterHalf, 0f, 0f), new Vector3(CenterHalf, 0f, 0f));
-                SetLine(cv.GetComponent<Il2CppShapes.Line>(), new Vector3(0f, -CenterHalf, 0f), new Vector3(0f, CenterHalf, 0f));
-                tracked.Add(s.pathRoot);
-            }
-            if (!s.pathRoot.activeSelf) s.pathRoot.SetActive(true);
-            s.pathRoot.transform.localPosition = new Vector3(now.x, now.y, ZGeom);
-            var dl = s.pathRoot.transform.GetChild(0).GetComponent<Il2CppShapes.Line>();
-            var ar1 = s.pathRoot.transform.GetChild(1).GetComponent<Il2CppShapes.Line>();
-            var ar2 = s.pathRoot.transform.GetChild(2).GetComponent<Il2CppShapes.Line>();
-            Vector3 tip = pathDir * len;
-            Vector3 perp = new Vector3(-pathDir.y, pathDir.x, 0f);
-            SetLine(dl, Vector3.zero, tip);
-            SetLine(ar1, tip, tip - pathDir * ArrowLen + perp * ArrowLen * 0.6f);
-            SetLine(ar2, tip, tip - pathDir * ArrowLen - perp * ArrowLen * 0.6f);
+                Vector3 pathDir = toImpact / len;
+                float speedKmS = t.AimVel.magnitude * KmPerMapUnit;
+                if (s.pathRoot == null)
+                {
+                    s.pathRoot = new GameObject("FCS_OverlayPath");
+                    s.pathRoot.transform.SetParent(mapSurface, false);
+                    var dash = MakeLine(s.pathRoot.transform, "FCS_OverlayPathDash", PathColor, LineThickness, Vector3.zero);
+                    dash.GetComponent<Il2CppShapes.Line>().Dashed = true;   // 原生虚线, 无需贴图
+                    MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
+                    MakeLine(s.pathRoot.transform, "FCS_OverlayPathArrow", PathColor, LineThickness, Vector3.zero);
+                    // 当前位置罗盘点(与圆心罗盘点同款红墨线小十字): 现在在哪 → 会落到哪
+                    s.pathCross = new GameObject("FCS_OverlayPathCross");
+                    s.pathCross.transform.SetParent(s.pathRoot.transform, false);
+                    var ch = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
+                    var cv = MakeLine(s.pathCross.transform, "FCS_OverlayPathCrossSeg", InkRed, CenterThickness, Vector3.zero);
+                    SetLine(ch.GetComponent<Il2CppShapes.Line>(), new Vector3(-CenterHalf, 0f, 0f), new Vector3(CenterHalf, 0f, 0f));
+                    SetLine(cv.GetComponent<Il2CppShapes.Line>(), new Vector3(0f, -CenterHalf, 0f), new Vector3(0f, CenterHalf, 0f));
+                    tracked.Add(s.pathRoot);
+                }
+                if (!s.pathRoot.activeSelf) s.pathRoot.SetActive(true);
+                s.pathRoot.transform.localPosition = new Vector3(now.x, now.y, ZGeom);
+                var dl = s.pathRoot.transform.GetChild(0).GetComponent<Il2CppShapes.Line>();
+                var ar1 = s.pathRoot.transform.GetChild(1).GetComponent<Il2CppShapes.Line>();
+                var ar2 = s.pathRoot.transform.GetChild(2).GetComponent<Il2CppShapes.Line>();
+                Vector3 tip = pathDir * len;
+                Vector3 perp = new Vector3(-pathDir.y, pathDir.x, 0f);
+                float aLen = Mathf.Min(ArrowLen, len * 0.3f);   // 箭头随路径等比, 短路径尖峰不过大
+                SetLine(dl, Vector3.zero, tip);
+                SetLine(ar1, tip, tip - pathDir * aLen + perp * aLen * 0.6f);
+                SetLine(ar2, tip, tip - pathDir * aLen - perp * aLen * 0.6f);
 
-            // 速度注记(手写体): 路径根部上方, 文本变才重建
-            string speedText = $"{speedKmS * 3600f:F0}km/h";
-            if (speedText != s.speedText)
-            {
-                s.speedText = speedText;
-                RebuildText(s, ref s.speedRoot, speedText, LabelColor, mapSurface, Vector3.zero);
+                // 速度注记(手写体): 路径根部上方, 文本变才重建
+                string speedText = $"{speedKmS * 3600f:F0}km/h";
+                if (speedText != s.speedText)
+                {
+                    s.speedText = speedText;
+                    RebuildText(s, ref s.speedRoot, speedText, LabelColor, mapSurface, Vector3.zero);
+                }
+                if (s.speedRoot != null)
+                {
+                    if (!s.speedRoot.activeSelf) s.speedRoot.SetActive(true);
+                    s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + 0.3f, ZLabel);
+                }
             }
-            if (s.speedRoot != null)
+            else
             {
-                if (!s.speedRoot.activeSelf) s.speedRoot.SetActive(true);
-                s.speedRoot.transform.localPosition = new Vector3(now.x, now.y + 0.3f, ZLabel);
+                if (s.pathRoot != null && s.pathRoot.activeSelf) s.pathRoot.SetActive(false);
+                if (s.speedRoot != null && s.speedRoot.activeSelf) s.speedRoot.SetActive(false);
             }
         }
         else
