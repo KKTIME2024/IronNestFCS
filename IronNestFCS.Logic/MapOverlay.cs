@@ -37,8 +37,8 @@ public class MapOverlay
     private const float LabelOffset = 0.15f;       // 圈标签右上偏移(装机实测: 0.3 引导线太长, 减半)
     private const float PathLengthKm = 1.5f;       // 移动路径固定可见长度(km)
     private const float ArrowLen = 0.12f;          // 路径箭头半长(板面单位)
-    private const float ZGeom = -0.01f;            // 几何层 z(-0.005 半埋板面, -0.02 浮空; 取中间)
-    private const float ZLabel = -0.015f;          // 标签层 z(比几何层略高, 压线可读)
+    private const float ZGeom = -0.015f;           // 几何层 z(-0.01 被航拍照片层覆盖, -0.02 浮空)
+    private const float ZLabel = -0.02f;           // 标签层 z(比几何层略高, 压线可读)
 
     // 1930 手绘测量风: 统一墨线红家族(均匀色, 无渐变——手绘线不渐变)
     private static readonly Color InkRed = new(0.62f, 0.1f, 0.08f);          // 红墨线主色(圈/火线/刻度)
